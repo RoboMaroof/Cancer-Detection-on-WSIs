@@ -1,0 +1,11 @@
+slide_id,label,process,status,seg_level,sthresh,mthresh,close,use_otsu,keep_ids,exclude_ids,a_t,a_h,max_n_holes,vis_level,line_thickness,use_padding,contour_fn,bag_size,Pred_0,p_0,Pred_1,p_1
+TCGA-KL-8332-01A-01-BS1.5b2e086c-87b9-4bb0-91a8-f53352317671,tumor,1,tbp,-1,8,7,4,False,none,none,16.0,4.0,8,-1,100,True,four_pt,36533.0,tumor,0.9998575448989868,normal,0.00014246119826566428
+TCGA-KL-8333-11A-01-TS1.7422ed59-db8c-410a-8d04-dbab05918794,normal,1,tbp,-1,8,7,4,False,none,none,16.0,4.0,8,-1,100,True,four_pt,16398.0,normal,0.9999990463256836,tumor,8.96946460215986e-07
+TCGA-KL-8342-01A-01-BS1.47c4dc4a-bbd6-4fbb-80fb-18878e55225c,tumor,1,tbp,-1,8,7,4,False,none,none,16.0,4.0,8,-1,100,True,four_pt,9562.0,tumor,0.9999932050704956,normal,6.831190603406867e-06
+TCGA-KL-8343-11A-01-TS1.d260f3a8-5c03-4f8f-96dc-d5e3f5956bbd,normal,1,tbp,-1,8,7,4,False,none,none,16.0,4.0,8,-1,100,True,four_pt,7857.0,normal,0.999998927116394,tumor,1.0477847354195546e-06
+TCGA-KL-8344-11A-01-TS1.c520cd69-8520-49c7-a52d-b7141abe27d6,normal,1,tbp,-1,8,7,4,False,none,none,16.0,4.0,8,-1,100,True,four_pt,47390.0,normal,0.9999995231628418,tumor,4.879248649558576e-07
+TCGA-KO-8415-01Z-00-DX1.CB5F5330-C4E6-4ABB-B9A5-92F94EF23837,tumor,1,tbp,-1,8,7,4,False,none,none,16.0,4.0,8,-1,100,True,four_pt,49697.0,tumor,0.9998797178268433,normal,0.00012022219016216695
+TCGA-KO-8416-01A-01-BS1.649828e0-cf51-4319-8897-089b8dfcbd33,tumor,1,tbp,-1,8,7,4,False,none,none,16.0,4.0,8,-1,100,True,four_pt,33845.0,tumor,0.999945878982544,normal,5.410052108345553e-05
+TCGA-KO-8416-11A-01-TS1.3d85b751-7e2c-4c06-9495-524c88508889,normal,1,tbp,-1,8,7,4,False,none,none,16.0,4.0,8,-1,100,True,four_pt,20099.0,normal,0.9998725652694702,tumor,0.00012739287922158837
+TCGA-NP-A5H6-01Z-00-DX1.49B2A361-7BCD-4321-8372-8BAB636E812F,tumor,1,tbp,-1,8,7,4,False,none,none,16.0,4.0,8,-1,100,True,four_pt,15738.0,tumor,0.9999936819076538,normal,6.349805062200176e-06
+TCGA-UW-A72M-01Z-00-DX1.D2F473F4-24A1-4F02-B02E-C5A0390F0C8F,tumor,1,tbp,-1,8,7,4,False,none,none,16.0,4.0,8,-1,100,True,four_pt,92477.0,tumor,0.995505690574646,normal,0.004494273103773594
