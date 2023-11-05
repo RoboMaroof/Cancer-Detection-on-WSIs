@@ -350,6 +350,7 @@ if __name__ == '__main__':
 		wsi_kwargs = {'top_left': top_left, 'bot_right': bot_right, 'patch_size': patch_size, 'step_size': step_size, 
 		'custom_downsample':patch_args.custom_downsample, 'level': patch_args.patch_level, 'use_center_shift': heatmap_args.use_center_shift}
 
+		#GENERATE HEATMAP
 		heatmap_save_name = '{}_blockmap.tiff'.format(slide_id)
 		if os.path.isfile(os.path.join(r_slide_save_dir, heatmap_save_name)):
 			pass

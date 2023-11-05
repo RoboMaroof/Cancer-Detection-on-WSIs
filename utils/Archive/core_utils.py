@@ -4,17 +4,10 @@ from utils.utils import *
 import os
 from datasets.dataset_generic import save_splits
 from models.model_mil import MIL_fc, MIL_fc_mc
-
-################
-from models.model_clam_mar import CLAM_MB, CLAM_SB
-from sklearn.manifold import TSNE
-################
-
-
+from models.model_clam import CLAM_MB, CLAM_SB
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.metrics import auc as calc_auc
-from sklearn.metrics import precision_score, recall_score, f1_score, balanced_accuracy_score, average_precision_score
 import topk
 
 class Accuracy_Logger(object):
@@ -99,7 +92,6 @@ def train(datasets, cur, args):
     """   
         train for a single fold
     """
-    # FROM MAIN --> START POINT
     print('\nTraining Fold {}!'.format(cur))
     writer_dir = os.path.join(args.results_dir, str(cur))
     if not os.path.isdir(writer_dir):
@@ -114,13 +106,12 @@ def train(datasets, cur, args):
 
     print('\nInit train/val/test splits...', end=' ')
     train_split, val_split, test_split = datasets
-    save_splits(datasets, ['train', 'val', 'test'], os.path.join(args.results_dir, 'splits_{}.csv'.format(cur))) # creates splits_cur.csv file in results folder
+    save_splits(datasets, ['train', 'val', 'test'], os.path.join(args.results_dir, 'splits_{}.csv'.format(cur)))
     print('Done!')
     print("Training on {} samples".format(len(train_split)))
     print("Validating on {} samples".format(len(val_split)))
     print("Testing on {} samples".format(len(test_split)))
 
-    # LOSS FUNCTION
     print('\nInit loss function...', end=' ')
     if args.bag_loss == 'svm':
         from topk.svm import SmoothTop1SVM
@@ -134,8 +125,6 @@ def train(datasets, cur, args):
     print('\nInit Model...', end=' ')
     model_dict = {"dropout": args.drop_out, 'n_classes': args.n_classes}
     
-
-    # model ARGS definition
     if args.model_size is not None and args.model_type != 'mil':
         model_dict.update({"size_arg": args.model_size})
     
@@ -167,7 +156,7 @@ def train(datasets, cur, args):
         else:
             model = MIL_fc(**model_dict)
     
-    model.relocate()    #MOVE the model's parameters and computation to GPU
+    model.relocate()
     print('Done!')
     print_network(model)
 
@@ -189,12 +178,9 @@ def train(datasets, cur, args):
         early_stopping = None
     print('Done!')
 
-    #LOOP IN EPOCHS
     for epoch in range(args.max_epochs):
         if args.model_type in ['clam_sb', 'clam_mb'] and not args.no_inst_cluster:     
-            train_loop_clam(epoch, model, train_loader, optimizer, args.n_classes, args.bag_weight, writer, loss_fn)    #TO TRAIN_LOOP_CLAM
-            
-            # ????????????????????????????????
+            train_loop_clam(epoch, model, train_loader, optimizer, args.n_classes, args.bag_weight, writer, loss_fn)
             stop = validate_clam(cur, epoch, model, val_loader, args.n_classes, 
                 early_stopping, writer, loss_fn, args.results_dir)
         
@@ -211,18 +197,14 @@ def train(datasets, cur, args):
     else:
         torch.save(model.state_dict(), os.path.join(args.results_dir, "s_{}_checkpoint.pt".format(cur)))
 
-    # ????????????????????????????????
     _, val_error, val_auc, _= summary(model, val_loader, args.n_classes)
     print('Val error: {:.4f}, ROC AUC: {:.4f}'.format(val_error, val_auc))
 
     results_dict, test_error, test_auc, acc_logger = summary(model, test_loader, args.n_classes)
     print('Test error: {:.4f}, ROC AUC: {:.4f}'.format(test_error, test_auc))
 
-    # ????????????????????????????????
-
     for i in range(args.n_classes):
         acc, correct, count = acc_logger.get_summary(i)
-        
         print('class {}: acc {}, correct {}/{}'.format(i, acc, correct, count))
 
         if writer:
@@ -234,59 +216,12 @@ def train(datasets, cur, args):
         writer.add_scalar('final/test_error', test_error, 0)
         writer.add_scalar('final/test_auc', test_auc, 0)
         writer.close()
-
-    ###############################################
-    # Initialize lists to store true labels and predicted scores
-    all_true_labels = [[] for _ in range(args.n_classes)]  # Initialize an empty list for each class
-    all_predicted_scores = [[] for _ in range(args.n_classes)]  # Initialize an empty list for each class
-
-    # Initialize lists to store true labels and predicted labels
-    all_true_labels_f1 = []
-    all_predicted_labels_f1 = []
-
-    model.eval()  # Set the model to evaluation mode
-    with torch.no_grad():
-        for batch_idx, (data, label) in enumerate(test_loader):  # Iterate through the test data
-            data, label = data.to(device), label.to(device)          
-            _, Y_prob, Y_hat, _, _, _, _ = model(data, label=label, instance_eval=True)
-            
-            for class_idx in range(args.n_classes):
-                class_true_labels = label[:, class_idx].detach().cpu().numpy()
-                class_predicted_scores = Y_prob[:, class_idx].detach().cpu().numpy()
-                
-                all_true_labels[class_idx].extend(class_true_labels)
-                all_predicted_scores[class_idx].extend(class_predicted_scores)
-                
-            # For F1 Score and Balanced Accuracy Score
-            all_predicted_labels_f1.extend(Y_hat.detach().cpu().numpy())
-
-    # Calculate mAP for the entire test dataset
-
-    class_ap_scores = []
-    for class_idx in range(args.n_classes):
-        class_ap = average_precision_score(all_true_labels[class_idx], all_predicted_scores[class_idx])
-        class_ap_scores.append(class_ap)
-
-    # Calculate the mean average precision (mAP) across all classes
-    mAP_test = np.mean(class_ap_scores)
-
-    # Calculate F1 score for the entire test dataset
-    f1_score_test = f1_score(all_true_labels_f1, all_predicted_labels_f1, average='macro')  # Change 'macro' to 'micro' or 'weighted' as needed
-
-    # Calculate Balanced Accuracy Score (bACC) for the entire test dataset
-    bacc_test = balanced_accuracy_score(all_true_labels_f1, all_predicted_labels_f1)
-
-
-    ##################################################
-
-    return results_dict, test_auc, val_auc, 1-test_error, 1-val_error, mAP_test, f1_score_test, bacc_test 
+    return results_dict, test_auc, val_auc, 1-test_error, 1-val_error 
 
 
 def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writer = None, loss_fn = None):
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.train()
-
-    # ????????????????????????????????
     acc_logger = Accuracy_Logger(n_classes=n_classes)
     inst_logger = Accuracy_Logger(n_classes=n_classes)
     
@@ -295,23 +230,11 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
     train_inst_loss = 0.
     inst_count = 0
 
-    slide_embeddings = []
-    patch_embeddings = []
-    labels = []
-    patch_labels = []
-
-
     print('\n')
-
     for batch_idx, (data, label) in enumerate(loader):
         data, label = data.to(device), label.to(device)
-        # DATA --> all patches of a single WSL image
-        # data.shape --> K x D  K: No of patches in the WSL image   D:1024  Label: 0/1/2
 
-        #logits, Y_prob, Y_hat, _, instance_dict = model(data, label=label, instance_eval=True)
-        #############
-        logits, Y_prob, Y_hat, _, instance_dict, patch_feature_embeddings, slide_feature_embeddings = model(data, label=label, instance_eval=True)   #TO CLAM_SB (forward)
-        ##############
+        logits, Y_prob, Y_hat, _, instance_dict = model(data, label=label, instance_eval=True)
 
         acc_logger.log(Y_hat, label)
         loss = loss_fn(logits, label)
@@ -342,17 +265,6 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
         optimizer.step()
         optimizer.zero_grad()
 
-        #########################
-        # NEW CODE for Feature embeddings
-
-        patch_embeddings.append(patch_feature_embeddings.detach().cpu().numpy())
-        patch_labels.append([label.detach().cpu().numpy()] * 25)
-        slide_embeddings.append(slide_feature_embeddings.detach().cpu().numpy())
-        labels.append(label.detach().cpu().numpy())
-        
-
-
-
     # calculate loss and error for epoch
     train_loss /= len(loader)
     train_error /= len(loader)
@@ -376,35 +288,6 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
         writer.add_scalar('train/error', train_error, epoch)
         writer.add_scalar('train/clustering_loss', train_inst_loss, epoch)
 
-    ###################
-    # NEW CODE to log feature embeddings
-
-
-    # Concatenate embeddings and labels
-
-    patch_embeddings = np.concatenate(patch_embeddings, axis=0)
-    patch_embeddings = patch_embeddings.reshape(-1, patch_embeddings.shape[-1])
-    patch_labels = np.concatenate(patch_labels, axis=0)
-
-    slide_embeddings = np.concatenate(slide_embeddings, axis=0)
-    labels = np.concatenate(labels, axis=0)
-
-    # Log embeddings to TensorBoard
-    writer.add_embedding(
-        mat=patch_embeddings,
-        metadata=patch_labels,
-        global_step=(epoch * len(loader) + batch_idx),
-        tag='patch_embeddings'  # Specify a unique tag for the embeddings
-    )
-
-    writer.add_embedding(
-        mat=slide_embeddings,
-        metadata=labels,
-        global_step=(epoch * len(loader) + batch_idx),
-        tag='slide_embeddings'  # Specify a unique tag for the embeddings
-    )
-    ##################
-
 def train_loop(epoch, model, loader, optimizer, n_classes, writer = None, loss_fn = None):   
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu") 
     model.train()
@@ -416,7 +299,7 @@ def train_loop(epoch, model, loader, optimizer, n_classes, writer = None, loss_f
     for batch_idx, (data, label) in enumerate(loader):
         data, label = data.to(device), label.to(device)
 
-        logits, Y_prob, Y_hat, _, _, _, _ = model(data)
+        logits, Y_prob, Y_hat, _, _ = model(data)
         
         acc_logger.log(Y_hat, label)
         loss = loss_fn(logits, label)
@@ -434,9 +317,6 @@ def train_loop(epoch, model, loader, optimizer, n_classes, writer = None, loss_f
         # step
         optimizer.step()
         optimizer.zero_grad()
-
-
-        
 
     # calculate loss and error for epoch
     train_loss /= len(loader)
@@ -469,7 +349,7 @@ def validate(cur, epoch, model, loader, n_classes, early_stopping = None, writer
         for batch_idx, (data, label) in enumerate(loader):
             data, label = data.to(device, non_blocking=True), label.to(device, non_blocking=True)
 
-            logits, Y_prob, Y_hat, _, _, _, _ = model(data)
+            logits, Y_prob, Y_hat, _, _ = model(data)
 
             acc_logger.log(Y_hat, label)
             
@@ -531,7 +411,7 @@ def validate_clam(cur, epoch, model, loader, n_classes, early_stopping = None, w
     with torch.no_grad():
         for batch_idx, (data, label) in enumerate(loader):
             data, label = data.to(device), label.to(device)      
-            logits, Y_prob, Y_hat, _, instance_dict, _, _= model(data, label=label, instance_eval=True)
+            logits, Y_prob, Y_hat, _, instance_dict = model(data, label=label, instance_eval=True)
             acc_logger.log(Y_hat, label)
             
             loss = loss_fn(logits, label)
@@ -621,7 +501,7 @@ def summary(model, loader, n_classes):
         data, label = data.to(device), label.to(device)
         slide_id = slide_ids.iloc[batch_idx]
         with torch.no_grad():
-            logits, Y_prob, Y_hat, _, _, _, _ = model(data)
+            logits, Y_prob, Y_hat, _, _ = model(data)
 
         acc_logger.log(Y_hat, label)
         probs = Y_prob.cpu().numpy()

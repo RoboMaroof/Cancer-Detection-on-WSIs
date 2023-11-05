@@ -25,6 +25,8 @@ import torch.nn.functional as F
 import pandas as pd
 import numpy as np
 
+from sklearn.metrics import balanced_accuracy_score, f1_score, average_precision_score, confusion_matrix
+
 
 def main(args):
     # create results directory if necessary
@@ -47,10 +49,9 @@ def main(args):
     all_test_acc = []
     all_val_acc = []
 
-    all_test_bACC = []
-    all_test_F1 = []
-    all_test_mAP = []
-
+    test_balanced_accuracies = []
+    test_f1_scores = []
+    test_average_precisions = []
 
     folds = np.arange(start, end)
 
@@ -62,24 +63,68 @@ def main(args):
         #dataset object of datasets/dataset_generic.py --> Generic_MIL_Dataset class
         train_dataset, val_dataset, test_dataset = dataset.return_splits(from_id=False, 
                 csv_path='{}/splits_{}.csv'.format(args.split_dir, i))
-        
         datasets = (train_dataset, val_dataset, test_dataset)
-        results, test_auc, val_auc, test_acc, val_acc, test_mAP, test_f1, test_bACC  = train(datasets, i, args)   #TO utils/core_utils.py --> TRAIN 
+        results, test_auc, val_auc, test_acc, val_acc, true_labels, predicted_labels  = train(datasets, i, args)   #TO utils/core_utils.py --> TRAIN 
         # RETURNS: results, test_auc, val_auc, test_acc, val_acc FOR EACH FOLD
         all_test_auc.append(test_auc)
         all_val_auc.append(val_auc)
         all_test_acc.append(test_acc)
         all_val_acc.append(val_acc)
-        all_test_mAP.append(test_mAP)
-        all_test_F1.append(test_f1)
-        all_test_bACC.append(test_bACC)
+
+        test_balanced_acc = balanced_accuracy_score(true_labels, predicted_labels)
+        test_f1 = f1_score(true_labels, predicted_labels, average='weighted')  # 'weighted' accounts for multi-class
+        '''
+        ap_scores = []
+        predicted_labels = np.array(predicted_labels)
+        print(np.unique(predicted_labels))
+        true_labels = np.array(true_labels)
+        print(np.unique(true_labels))
+        for class_idx in range(args.n_classes):
+            true_labels_one_class = (true_labels == class_idx)
+            predicted_scores_one_class = predicted_labels[:, class_idx]
+            ap_score = average_precision_score(true_labels_one_class, predicted_scores_one_class)
+            ap_scores.append(ap_score)
+
+        # Calculate mean average precision (mAP)
+        test_map = np.mean(ap_scores)
+        '''
+
+
+        average_precisions = {}
+        for class_label in range(args.n_classes):
+            # Create binary labels for the current class
+            true_class_labels = [1 if label == class_label else 0 for label in true_labels]
+            predicted_class_scores = [1 if label == class_label else 0 for label in predicted_labels]
+
+            # Calculate average precision for the current class
+            ap = average_precision_score(true_class_labels, predicted_class_scores)
+            average_precisions[class_label] = ap
+
+        # Print average precision for each class
+        for class_label, ap in average_precisions.items():
+            print(f'Class {class_label}: Average Precision = {ap:.4f}')
+
+        # Calculate the overall mean average precision
+        test_map = np.mean(list(average_precisions.values()))
+        print(f'Mean Average Precision = {test_map:.4f}')
+
+
+        test_balanced_accuracies.append(test_balanced_acc)
+        test_f1_scores.append(test_f1)
+        test_average_precisions.append(test_map)
+
+        #Confusion Matrix
+        confusion = confusion_matrix(true_labels, predicted_labels)
+        print(f'Confusion Matrix for Fold {i}:\n{confusion}')
+
+
         #write results to pkl
         filename = os.path.join(args.results_dir, 'split_{}_results.pkl'.format(i))
         save_pkl(filename, results)
 
     #Dataframe of validation and test scores for all (10) folds --> saved in summary.csv in results dir
     final_df = pd.DataFrame({'folds': folds, 'test_auc': all_test_auc, 
-        'val_auc': all_val_auc, 'test_acc': all_test_acc, 'val_acc' : all_val_acc, 'test_mAP': all_test_mAP, 'test_F1': all_test_F1, 'test_bACC' : all_test_bACC })
+        'val_auc': all_val_auc, 'test_acc': all_test_acc, 'val_acc' : all_val_acc, 'test_mAP': test_average_precisions, 'test_F1': test_f1_scores, 'test_bACC' : test_balanced_accuracies })
 
     if len(folds) != args.k:
         save_name = 'summary_partial_{}_{}.csv'.format(start, end)
@@ -190,16 +235,20 @@ if args.task == 'task_1_tumor_vs_normal':
                             ignore=[])
 
 elif args.task == 'task_2_tumor_subtyping':
-    args.n_classes=3
-    dataset = Generic_MIL_Dataset(csv_path = '/work/scratch/abdul/CLAM/Renal/Trials/Subtyping_ClassBalance_120923/subtyping_dataset_SELECTED.csv',
+    ############################
+    #args.n_classes=3
+    args.n_classes=4
+    
+    dataset = Generic_MIL_Dataset(csv_path = '/work/scratch/abdul/CLAM/Renal/Trials/05_Subtyping_with_Normal_171023/Normal_Vs_Subtyping_dataset_SELECTED.csv',
                             data_dir= os.path.join(args.data_root_dir, 'tumor_subtyping_resnet_features'),
                             shuffle = False, 
                             seed = args.seed, 
                             print_info = True,
-                            label_dict = {'KIRC':0, 'KIRP':1, 'KICH':2},
+                            #label_dict = {'KIRC':0, 'KIRP':1, 'KICH':2},
+                            label_dict = {'KIRC':0, 'KIRP':1, 'KICH':2, 'Normal':3},
                             patient_strat= False,
                             ignore=[])
-
+    ######################
     if args.model_type in ['clam_sb', 'clam_mb']:
         assert args.subtyping 
         
@@ -216,9 +265,10 @@ if not os.path.isdir(args.results_dir):
 
 #SPLITS DIR
 if args.split_dir is None:
-    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/Subtyping_ClassBalance_120923/splits', args.task+'_{}'.format(int(args.label_frac*100)))
+    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/05_Subtyping_with_Normal_171023/splits', args.task+'_{}'.format(int(args.label_frac*100)))
 else:
-    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/Subtyping_ClassBalance_120923/splits', args.split_dir)
+    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/05_Subtyping_with_Normal_171023/splits', args.split_dir)
+    
 
 print('split_dir: ', args.split_dir)
 assert os.path.isdir(args.split_dir)
