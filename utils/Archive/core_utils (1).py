@@ -241,7 +241,6 @@ def train(datasets, cur, args):
 def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writer = None, loss_fn = None):
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.train()
-    model.to(device)
 
     # ????????????????????????????????
     acc_logger = Accuracy_Logger(n_classes=n_classes)
@@ -250,9 +249,7 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
     train_loss = 0.
     train_error = 0.
     train_inst_loss = 0.
-    train_center_loss = 0.
     inst_count = 0
-    center_count = 0
 
     slide_embeddings = []
     patch_embeddings = []
@@ -264,10 +261,6 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
 
     for batch_idx, (data, label) in enumerate(loader):
         data, label = data.to(device), label.to(device)
-
-        # Ensure the model is on the correct device
-        model.relocate()
-
         # DATA --> all patches of a single WSL image
         # data.shape --> K x D  K: No of patches in the WSL image   D:1024  Label: 0/1/2
 
@@ -284,16 +277,8 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
         inst_count+=1
         instance_loss_value = instance_loss.item()
         train_inst_loss += instance_loss_value
-
-        center_loss = instance_dict['center_loss']
-        center_count+=1
-        center_loss_value = center_loss.item()
-        train_center_loss += center_loss_value
         
-        #total_loss = bag_weight * loss + (1-bag_weight) * instance_loss 
-        lambda_c = 0.5
-        total_loss = bag_weight * loss + (1 - bag_weight) * instance_loss + lambda_c * center_loss
-
+        total_loss = bag_weight * loss + (1-bag_weight) * instance_loss 
 
         inst_preds = instance_dict['inst_preds']
         inst_labels = instance_dict['inst_labels']
@@ -301,7 +286,7 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
 
         train_loss += loss_value
         if (batch_idx + 1) % 20 == 0:
-            print('batch {}, loss: {:.4f}, instance_loss: {:.4f}, center_loss: {:.4f}, weighted_loss: {:.4f}, '.format(batch_idx, loss_value, instance_loss_value, center_loss.item(), total_loss.item()) + 
+            print('batch {}, loss: {:.4f}, instance_loss: {:.4f}, weighted_loss: {:.4f}, '.format(batch_idx, loss_value, instance_loss_value, total_loss.item()) + 
                 'label: {}, bag_size: {}'.format(label.item(), data.size(0)))
 
         error = calculate_error(Y_hat, label)
@@ -345,14 +330,10 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
         if writer and acc is not None:
             writer.add_scalar('train/class_{}_acc'.format(i), acc, epoch)
 
-    if center_count > 0:
-        train_center_loss /= center_count
-    
     if writer:
         writer.add_scalar('train/loss', train_loss, epoch)
         writer.add_scalar('train/error', train_error, epoch)
         writer.add_scalar('train/clustering_loss', train_inst_loss, epoch)
-        writer.add_scalar('train/center_loss', train_center_loss, epoch)
 
     ###################
     # NEW CODE to log feature embeddings
@@ -577,7 +558,7 @@ def validate_clam(cur, epoch, model, loader, n_classes, early_stopping = None, w
         early_stopping(epoch, val_loss, model, ckpt_name = os.path.join(results_dir, "s_{}_checkpoint.pt".format(cur)))
         
         if early_stopping.early_stop:
-            print("Early stopping in Validate_clam")
+            print("Early stopping")
             return True
 
     return False

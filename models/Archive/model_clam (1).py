@@ -4,35 +4,6 @@ import torch.nn.functional as F
 from utils.utils import initialize_weights
 import numpy as np
 
-#############
-# Define the CenterLoss criterion
-class CenterLoss(nn.Module):
-    def __init__(self, num_classes, feat_dim, alpha=0.5):
-        super(CenterLoss, self).__init__()
-        self.num_classes = num_classes
-        self.feat_dim = feat_dim
-        self.alpha = alpha
-        self.centers = nn.Parameter(torch.randn(num_classes, feat_dim)) # Size [num_classes x feat_dim]
-
-    def forward(self, h, labels):
-        device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        labels = torch.tensor([labels] * h.size(0))  # Repeat the scalar label for each sample in the batch
-        labels = labels.to(device) if labels is not None else None  
-        self.centers = nn.Parameter(self.centers.data.to(device))
-
-        #centers_batch = F.embedding(labels, self.centers)
-        # Extract centers_batch using gather
-        centers_batch = torch.gather(self.centers, 0, labels.view(-1, 1).expand(-1, self.feat_dim))
-        #centers_batch = self.centers[torch.tensor(labels).long()].expand(h.shape[0], -1) # Size [batch_size x feat_dim]
-
-
-        criterion = nn.MSELoss()
-        center_loss = criterion(h, centers_batch)
-
-        return center_loss
-##############
-
-
 """
 Attention Network with Sigmoid Gating (3 fc layers)
 args:
@@ -63,19 +34,11 @@ class Attn_Net_Gated(nn.Module):
         
         self.attention_c = nn.Linear(D, n_classes)  # parallel attention branches for n_classes
 
-        # Center loss
-        #self.center_loss = CenterLoss(num_classes=n_classes, feat_dim=D)
-
     def forward(self, x):
         a = self.attention_a(x) # fc2
         b = self.attention_b(x) # fc3
         A = a.mul(b)    # fc2 . fc3
         A = self.attention_c(A)  # N x n_classes --> parallel attention branches for each class
-
-        # Calculate center loss
-        #center_loss = self.center_loss(A, labels)
-
-        #return A, x, center_loss
         return A, x
 
 """
@@ -91,7 +54,7 @@ args:
 """
 class CLAM_SB(nn.Module):
     def __init__(self, gate = True, size_arg = "small", dropout = False, k_sample=8, n_classes=2,
-        instance_loss_fn=nn.CrossEntropyLoss(), subtyping=False, use_center_loss=True):
+        instance_loss_fn=nn.CrossEntropyLoss(), subtyping=False):
         super(CLAM_SB, self).__init__()
         self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
         size = self.size_dict[size_arg]
@@ -113,13 +76,6 @@ class CLAM_SB(nn.Module):
         self.instance_loss_fn = instance_loss_fn
         self.n_classes = n_classes
         self.subtyping = subtyping
-
-        #########
-        self.use_center_loss = use_center_loss
-
-        if use_center_loss:
-            self.center_loss = CenterLoss(n_classes, size[1])
-        #########
 
         initialize_weights(self)
 
@@ -182,13 +138,6 @@ class CLAM_SB(nn.Module):
         A_raw = A
         A = F.softmax(A, dim=1)  # softmax over N   --> normalized attention score for kth patch for ith class 
 
-        ###############
-        if self.use_center_loss and label is not None:
-            center_loss = self.center_loss(h, label)
-        else:
-            center_loss = 0.0
-        ################
-        
         ######Instance level clustering#################
         if instance_eval:
             total_inst_loss = 0.0
@@ -226,10 +175,8 @@ class CLAM_SB(nn.Module):
 
         Y_prob = F.softmax(logits, dim = 1) #  1 x N
         if instance_eval:
-            #results_dict = {'instance_loss': total_inst_loss, 'inst_labels': np.array(all_targets), 
-            #'inst_preds': np.array(all_preds)}
             results_dict = {'instance_loss': total_inst_loss, 'inst_labels': np.array(all_targets), 
-            'inst_preds': np.array(all_preds), 'center_loss': center_loss}
+            'inst_preds': np.array(all_preds)}
         else:
             results_dict = {}
         if return_features:

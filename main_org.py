@@ -239,7 +239,7 @@ elif args.task == 'task_2_tumor_subtyping':
     #args.n_classes=3
     args.n_classes=4
     
-    dataset = Generic_MIL_Dataset(csv_path = '/work/scratch/abdul/CLAM/Renal/Trials/06_Center_Loss/Normal_Vs_Subtyping_dataset_SELECTED.csv',
+    dataset = Generic_MIL_Dataset(csv_path = '/work/scratch/abdul/CLAM/Renal/Trials/05_Subtyping_with_Normal_171023/Normal_Vs_Subtyping_dataset_SELECTED.csv',
                             data_dir= os.path.join(args.data_root_dir, 'tumor_subtyping_resnet_features'),
                             shuffle = False, 
                             seed = args.seed, 
@@ -265,9 +265,9 @@ if not os.path.isdir(args.results_dir):
 
 #SPLITS DIR
 if args.split_dir is None:
-    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/04_Normal_Vs_Subtyping_051023/splits', args.task+'_{}'.format(int(args.label_frac*100)))
+    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/05_Subtyping_with_Normal_171023/splits', args.task+'_{}'.format(int(args.label_frac*100)))
 else:
-    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/04_Normal_Vs_Subtyping_051023/splits', args.split_dir)
+    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/05_Subtyping_with_Normal_171023/splits', args.split_dir)
     
 
 print('split_dir: ', args.split_dir)
