@@ -1,84 +1,36 @@
 import torch
 import torch.nn as nn
-import torch.nn.parallel
 import torch.nn.functional as F
-from torch.nn import Parameter 
-from torch.autograd import Variable 
 from utils.utils import initialize_weights
 import numpy as np
 
-
+#############
 # Define the CenterLoss criterion
 class CenterLoss(nn.Module):
-    def __init__(self, num_classes, feat_dim, centers, alpha=0.5):
+    def __init__(self, num_classes, feat_dim, alpha=0.5):
         super(CenterLoss, self).__init__()
         self.num_classes = num_classes
         self.feat_dim = feat_dim
         self.alpha = alpha
-        self.centers = centers # Size [num_classes x feat_dim]
+        self.centers = nn.Parameter(torch.randn(num_classes, feat_dim)) # Size [num_classes x feat_dim]
 
     def forward(self, h, labels):
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
         labels = torch.tensor([labels] * h.size(0))  # Repeat the scalar label for each sample in the batch
         labels = labels.to(device) if labels is not None else None  
-        #self.centers = nn.Parameter(self.centers.data.to(device))
+        self.centers = nn.Parameter(self.centers.data.to(device))
 
+        #centers_batch = F.embedding(labels, self.centers)
         # Extract centers_batch using gather
         centers_batch = torch.gather(self.centers, 0, labels.view(-1, 1).expand(-1, self.feat_dim))
+        #centers_batch = self.centers[torch.tensor(labels).long()].expand(h.shape[0], -1) # Size [batch_size x feat_dim]
+
 
         criterion = nn.MSELoss()
         center_loss = criterion(h, centers_batch)
 
         return center_loss
-
-
-# Triplet related loss 
-def pdist(A, squared=False, eps=1e-4):
-    prod = torch.mm(A, A.t())
-    norm = prod.diag().unsqueeze(1).expand_as(prod) 
-    res = (norm + norm.t() - 2 * prod).clamp(min = 0) 
-    return res if squared else (res + eps).sqrt() + eps 
-
-
-class TripletCenterLoss(nn.Module):
-    def __init__(self, margin=5, num_classes=4):
-        super(TripletCenterLoss, self).__init__() 
-        self.margin = margin 
-        self.ranking_loss = nn.MarginRankingLoss(margin=margin) 
-        self.centers = nn.Parameter(torch.randn(num_classes, num_classes)) 
-   
-    def forward(self, h, labels): 
-        batch_size = h.size(0) 
-        labels_expand = labels.view(batch_size, 1).expand(batch_size, h.size(1)) 
-        centers_batch = self.centers.gather(0, labels_expand) # centers batch 
-
-        # compute pairwise distances between input features and corresponding centers 
-        centers_batch_bz = torch.stack([centers_batch]*batch_size) 
-        h_bz = torch.stack([h]*batch_size).transpose(0, 1) 
-        dist = torch.sum((centers_batch_bz -h_bz)**2, 2).squeeze() 
-        dist = dist.clamp(min=1e-12).sqrt() # for numerical stability 
-
-        # for each anchor, find the hardest positive and negative 
-        mask = labels.expand(batch_size, batch_size).eq(labels.expand(batch_size, batch_size).t())
-        dist_ap, dist_an = [], [] 
-        for i in range(batch_size): # for each sample, we compute distance 
-            dist_ap.append(dist[i][mask[i]].max()) # mask[i]: positive samples of sample i
-            dist_an.append(dist[i][mask[i]==0].min()) # mask[i]==0: negative samples of sample i 
-
-        dist_ap = torch.cat(dist_ap)
-        dist_an = torch.cat(dist_an)
-
-        # generate a new label y
-        # compute ranking hinge loss 
-        y = dist_an.data.new() 
-        y.resize_as_(dist_an.data)
-        y.fill_(1)
-        y = Variable(y)
-        # y_i = 1, means dist_an > dist_ap + margin will casuse loss be zero 
-        loss = self.ranking_loss(dist_an, dist_ap, y)
-
-        prec = (dist_an.data > dist_ap.data).sum() * 1. / y.size(0) # normalize data by batch size 
-        return loss, prec    
+##############
 
 
 """
@@ -111,12 +63,19 @@ class Attn_Net_Gated(nn.Module):
         
         self.attention_c = nn.Linear(D, n_classes)  # parallel attention branches for n_classes
 
+        # Center loss
+        #self.center_loss = CenterLoss(num_classes=n_classes, feat_dim=D)
+
     def forward(self, x):
         a = self.attention_a(x) # fc2
         b = self.attention_b(x) # fc3
         A = a.mul(b)    # fc2 . fc3
         A = self.attention_c(A)  # N x n_classes --> parallel attention branches for each class
 
+        # Calculate center loss
+        #center_loss = self.center_loss(A, labels)
+
+        #return A, x, center_loss
         return A, x
 
 """
@@ -136,7 +95,6 @@ class CLAM_SB(nn.Module):
         super(CLAM_SB, self).__init__()
         self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
         size = self.size_dict[size_arg]
-        self.batch_counter = 0
 
         #MODEL ARCHITECTURE
         fc = [nn.Linear(size[0], size[1]), nn.ReLU()]   # fc1
@@ -160,9 +118,7 @@ class CLAM_SB(nn.Module):
         self.use_center_loss = use_center_loss
 
         if use_center_loss:
-            self.centers = nn.Parameter(torch.randn(n_classes, size[1]))
-            self.centers.requires_grad_(True)
-            self.center_loss = CenterLoss(n_classes, size[1], self.centers)
+            self.center_loss = CenterLoss(n_classes, size[1])
         #########
 
         initialize_weights(self)

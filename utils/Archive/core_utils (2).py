@@ -243,6 +243,7 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
     model.train()
     model.to(device)
 
+    # ????????????????????????????????
     acc_logger = Accuracy_Logger(n_classes=n_classes)
     inst_logger = Accuracy_Logger(n_classes=n_classes)
     
@@ -258,10 +259,6 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
     labels = []
     patch_labels = []
 
-    update_frequency = 20  # Update class centers every 20th batch
-    accumulated_gradients = torch.zeros_like(model.centers)
-
-
 
     print('\n')
 
@@ -274,8 +271,10 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
         # DATA --> all patches of a single WSL image
         # data.shape --> K x D  K: No of patches in the WSL image   D:1024  Label: 0/1/2
 
-        # FORWARD PASS
+        #logits, Y_prob, Y_hat, _, instance_dict = model(data, label=label, instance_eval=True)
+        #############
         logits, Y_prob, Y_hat, _, instance_dict, patch_feature_embeddings, slide_feature_embeddings = model(data, label=label, instance_eval=True)   #TO CLAM_SB (forward)
+        ##############
 
         acc_logger.log(Y_hat, label)
         loss = loss_fn(logits, label)
@@ -291,34 +290,10 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
         center_loss_value = center_loss.item()
         train_center_loss += center_loss_value
         
-        
+        #total_loss = bag_weight * loss + (1-bag_weight) * instance_loss 
         lambda_c = 0.5
-        # LOSS COMPUTATION
         total_loss = bag_weight * loss + (1 - bag_weight) * instance_loss + lambda_c * center_loss
 
-        # BACKWARD PASS
-        total_loss.backward()
-        
-        model.batch_counter += 1
-        if model.batch_counter % update_frequency == 0:
-            # Update class centers based on accumulated gradients
-            optimizer_centers = torch.optim.SGD([model.centers], lr=2e-4)
-            optimizer_centers.zero_grad()
-
-            # Sum the accumulated gradients over the previous 20 batches
-            model.centers.grad = accumulated_gradients
-
-            # Average the gradients
-            model.centers.grad /= update_frequency
-
-            # Update the class centers
-            optimizer_centers.step()
-
-            # Reset the accumulated gradients
-            accumulated_gradients.zero_()
-        else:
-            # Accumulate gradients for the current batch
-            accumulated_gradients += model.centers.grad.clone()
 
         inst_preds = instance_dict['inst_preds']
         inst_labels = instance_dict['inst_labels']
@@ -332,19 +307,23 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
         error = calculate_error(Y_hat, label)
         train_error += error
         
-
-        # GRADIEND DESCENT OPTIMIZATION
+        # backward pass
+        total_loss.backward()
+        # step
         optimizer.step()
-    
-        # Clear the gradients
         optimizer.zero_grad()
 
-        # Feature embeddings
+        #########################
+        # NEW CODE for Feature embeddings
 
         patch_embeddings.append(patch_feature_embeddings.detach().cpu().numpy())
         patch_labels.append([label.detach().cpu().numpy()] * 15)
         slide_embeddings.append(slide_feature_embeddings.detach().cpu().numpy())
-        labels.append(label.detach().cpu().numpy())      
+        labels.append(label.detach().cpu().numpy())
+
+        #########################
+        # NEW CODE to log topk patch images
+        
 
 
 
@@ -375,6 +354,9 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
         writer.add_scalar('train/clustering_loss', train_inst_loss, epoch)
         writer.add_scalar('train/center_loss', train_center_loss, epoch)
 
+    ###################
+    # NEW CODE to log feature embeddings
+
 
     # Concatenate embeddings and labels
 
@@ -399,6 +381,7 @@ def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writ
         global_step=(epoch * len(loader) + batch_idx),
         tag='slide_embeddings'  # Specify a unique tag for the embeddings
     )
+    ##################
 
 def train_loop(epoch, model, loader, optimizer, n_classes, writer = None, loss_fn = None):   
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu") 
