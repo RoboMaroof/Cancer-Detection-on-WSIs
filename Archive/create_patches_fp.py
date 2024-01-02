@@ -9,8 +9,6 @@ import time
 import argparse
 import pdb
 import pandas as pd
-import openslide
-
 
 def stitching(file_path, wsi_object, downscale = 64):
 	start = time.time()
@@ -32,13 +30,6 @@ def segment(WSI_object, seg_params = None, filter_params = None, mask_file = Non
 	### Stop Seg Timers
 	seg_time_elapsed = time.time() - start_time   
 	return WSI_object, seg_time_elapsed
-
-
-def get_magnification(WSI_object):
-    slide = openslide.OpenSlide(WSI_object)
-    magnification = slide.properties.get("aperio.AppMag")
-    slide.close()
-    return magnification
 
 def patching(WSI_object, **kwargs):
 	### Start Patch Timer
@@ -64,34 +55,20 @@ def seg_and_patch(source, save_dir, patch_save_dir, mask_save_dir, stitch_save_d
 				  use_default_params = False, 
 				  seg = False, save_mask = True, 
 				  stitch= False, 
-				  patch = False, auto_skip=True, process_list = None,
-				  svs_list_file=None):	# Additional argument for slide list csv file
+				  patch = False, auto_skip=True, process_list = None):
 	
 
 	print("Start")
 
 	slides = sorted(os.listdir(source))
 	slides = [slide for slide in slides if os.path.isfile(os.path.join(source, slide))]
-
-	'''
 	if process_list is None:
 		df = initialize_df(slides, seg_params, filter_params, vis_params, patch_params)
 	
 	else:
 		df = pd.read_csv(process_list)
 		df = initialize_df(df, seg_params, filter_params, vis_params, patch_params)
-	'''
-
-	if process_list is None:
-		if svs_list_file:
-			svs_list_df = pd.read_csv(svs_list_file, header=None, names=['slide_id'])
-			slides = svs_list_df.squeeze().tolist()
-			slides = [slide + '.svs' if not slide.endswith('.svs') else slide for slide in slides]
-		else:
-			slides = sorted(os.listdir(source))
-			slides = [slide for slide in slides if os.path.isfile(os.path.join(source, slide))]
-		df = initialize_df(slides, seg_params, filter_params, vis_params, patch_params)
-
+	
 	
 	print(df.head)
 	
@@ -221,19 +198,9 @@ def seg_and_patch(source, save_dir, patch_save_dir, mask_save_dir, stitch_save_d
 
 		patch_time_elapsed = -1 # Default time
 		if patch:
-			magnification = get_magnification(full_path)
-			print("Magnification of the slide is ", magnification)
-			# Update patch size based on magnification
-			if magnification == 40:
-				patch_size = 512
-				patch_level = 1
-				current_patch_params['patch_size'] = 512
-				current_patch_params['downsample_to'] = patch_size
-
 			current_patch_params.update({'patch_level': patch_level, 'patch_size': patch_size, 'step_size': step_size, 
 										 'save_path': patch_save_dir})
 			file_path, patch_time_elapsed = patching(WSI_object = WSI_object,  **current_patch_params,)
-			df.loc[idx, 'magnification'] = magnification
 		
 		stitch_time_elapsed = -1
 		if stitch:
@@ -282,8 +249,6 @@ parser.add_argument('--patch_level', type=int, default=0,
 					help='downsample level at which to patch')
 parser.add_argument('--process_list',  type = str, default=None,
 					help='name of list of images to process with parameters (.csv)')
-parser.add_argument('--svs_list_file', type=str, default=None,
-                        help='CSV file containing names of SVS files to be considered')
 
 if __name__ == '__main__':
 	args = parser.parse_args()
@@ -346,5 +311,4 @@ if __name__ == '__main__':
 											seg = args.seg,  use_default_params=False, save_mask = True, 
 											stitch= args.stitch,
 											patch_level=args.patch_level, patch = args.patch,
-											process_list = process_list, auto_skip=args.no_auto_skip,
-											svs_list_file=args.svs_list_file)  # Pass the svs_list_file argument)
+											process_list = process_list, auto_skip=args.no_auto_skip)

@@ -31,12 +31,15 @@ def compute_w_loader(file_path, output_path, wsi, model,
 		custom_downsample: custom defined downscale factor of image patches
 		target_patch_size: custom defined, rescaled image size before embedding
 	"""
+
 	dataset = Whole_Slide_Bag_FP(file_path=file_path, wsi=wsi, pretrained=pretrained, 
 		custom_downsample=custom_downsample, target_patch_size=target_patch_size)
 	x, y = dataset[0]
+	
 	kwargs = {'num_workers': 4, 'pin_memory': True} if device.type == "cuda" else {}
+	
 	loader = DataLoader(dataset=dataset, batch_size=batch_size, **kwargs, collate_fn=collate_features)
-
+	
 	if verbose > 0:
 		print('processing {}: total of {} batches'.format(file_path,len(loader)))
 
@@ -53,6 +56,7 @@ def compute_w_loader(file_path, output_path, wsi, model,
 			asset_dict = {'features': features, 'coords': coords}
 			save_hdf5(output_path, asset_dict, attr_dict= None, mode=mode)
 			mode = 'a'
+			
 	
 	return output_path
 
@@ -103,6 +107,11 @@ if __name__ == '__main__':
 		print('\nprogress: {}/{}'.format(bag_candidate_idx, total))
 		print(slide_id)
 
+		if not os.path.exists(h5_file_path):
+			print('h5 file not found for {}, skipping'.format(slide_id))
+			continue
+
+		
 		if not args.no_auto_skip and slide_id+'.pt' in dest_files:
 			print('skipped {}'.format(slide_id))
 			continue 
@@ -110,9 +119,16 @@ if __name__ == '__main__':
 		output_path = os.path.join(args.feat_dir, 'h5_files', bag_name)
 		time_start = time.time()
 		wsi = openslide.open_slide(slide_file_path)
-		output_file_path = compute_w_loader(h5_file_path, output_path, wsi, 
-		model = model, batch_size = args.batch_size, verbose = 1, print_every = 20, 
-		custom_downsample=args.custom_downsample, target_patch_size=args.target_patch_size)
+
+		try:
+			output_file_path = compute_w_loader(h5_file_path, output_path, wsi, 
+			model = model, batch_size = args.batch_size, verbose = 1, print_every = 20, 
+			custom_downsample=args.custom_downsample, target_patch_size=args.target_patch_size)
+		
+		except:
+			print('coords not found for {}, skipping'.format(slide_id))
+			continue
+		
 		time_elapsed = time.time() - time_start
 		print('\ncomputing features for {} took {} s'.format(output_file_path, time_elapsed))
 		file = h5py.File(output_file_path, "r")

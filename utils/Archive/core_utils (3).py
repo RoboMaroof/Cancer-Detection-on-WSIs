@@ -95,7 +95,7 @@ class EarlyStopping:
         torch.save(model.state_dict(), ckpt_name)
         self.val_loss_min = val_loss
 
-def train(datasets, patch_datasets, cur, args):
+def train(datasets, cur, args):
     """   
         train for a single fold
     """
@@ -113,22 +113,12 @@ def train(datasets, patch_datasets, cur, args):
         writer = None
 
     print('\nInit train/val/test splits...', end=' ')
-
     train_split, val_split, test_split = datasets
-    patch_train_split, patch_val_split, patch_test_split = patch_datasets
-    
     save_splits(datasets, ['train', 'val', 'test'], os.path.join(args.results_dir, 'splits_{}.csv'.format(cur))) # creates splits_cur.csv file in results folder
-    save_splits(patch_datasets, ['train', 'val', 'test'], os.path.join(args.results_dir, 'patch_splits_{}.csv'.format(cur)))
-    
     print('Done!')
     print("Training on {} samples".format(len(train_split)))
     print("Validating on {} samples".format(len(val_split)))
     print("Testing on {} samples".format(len(test_split)))
-
-    print('Patch level data')
-    print("Training on {} samples".format(len(patch_train_split)))
-    print("Validating on {} samples".format(len(patch_val_split)))
-    print("Testing on {} samples".format(len(patch_test_split)))
 
     # LOSS FUNCTION
     print('\nInit loss function...', end=' ')
@@ -191,12 +181,6 @@ def train(datasets, patch_datasets, cur, args):
     test_loader = get_split_loader(test_split, testing = args.testing)
     print('Done!')
 
-    print('\nPatch level Init Loaders...', end=' ')
-    patch_train_loader = get_split_loader(patch_train_split, training=True, testing = args.testing, weighted = args.weighted_sample)
-    patch_val_loader = get_split_loader(patch_val_split,  testing = args.testing)
-    patch_test_loader = get_split_loader(patch_test_split, testing = args.testing)
-    print('Done!')
-
     print('\nSetup EarlyStopping...', end=' ')
     if args.early_stopping:
         early_stopping = EarlyStopping(patience = 20, stop_epoch=50, verbose = True)
@@ -208,15 +192,15 @@ def train(datasets, patch_datasets, cur, args):
     #LOOP IN EPOCHS
     for epoch in range(args.max_epochs):
         if args.model_type in ['clam_sb', 'clam_mb'] and not args.no_inst_cluster:     
-            train_loop_clam(epoch, model, train_loader, patch_train_loader, optimizer, args.n_classes, args.bag_weight, writer, loss_fn)    #TO TRAIN_LOOP_CLAM
+            train_loop_clam(epoch, model, train_loader, optimizer, args.n_classes, args.bag_weight, writer, loss_fn)    #TO TRAIN_LOOP_CLAM
             
             # ????????????????????????????????
-            stop = validate_clam(cur, epoch, model, val_loader, patch_val_loader, args.n_classes, 
+            stop = validate_clam(cur, epoch, model, val_loader, args.n_classes, 
                 early_stopping, writer, loss_fn, args.results_dir)
         
         else:
             train_loop(epoch, model, train_loader, optimizer, args.n_classes, writer, loss_fn)
-            stop = validate(cur, epoch, model, val_loader, patch_val_loader, args.n_classes, 
+            stop = validate(cur, epoch, model, val_loader, args.n_classes, 
                 early_stopping, writer, loss_fn, args.results_dir)
         
         if stop: 
@@ -228,10 +212,10 @@ def train(datasets, patch_datasets, cur, args):
         torch.save(model.state_dict(), os.path.join(args.results_dir, "s_{}_checkpoint.pt".format(cur)))
 
     # ????????????????????????????????
-    _, val_error, val_auc, _, _, _= summary(model, val_loader, patch_val_loader, args.n_classes)
+    _, val_error, val_auc, _, _, _= summary(model, val_loader, args.n_classes)
     print('Val error: {:.4f}, ROC AUC: {:.4f}'.format(val_error, val_auc))
 
-    results_dict, test_error, test_auc, acc_logger, true_labels, pred_labels = summary(model, test_loader, patch_test_loader, args.n_classes)
+    results_dict, test_error, test_auc, acc_logger, true_labels, pred_labels = summary(model, test_loader, args.n_classes)
     print('Test error: {:.4f}, ROC AUC: {:.4f}'.format(test_error, test_auc))
 
     # ????????????????????????????????
@@ -254,7 +238,7 @@ def train(datasets, patch_datasets, cur, args):
     return results_dict, test_auc, val_auc, 1-test_error, 1-val_error, true_labels, pred_labels
 
 
-def train_loop_clam(epoch, model, loader, patch_loader, optimizer, n_classes, bag_weight, writer = None, loss_fn = None):
+def train_loop_clam(epoch, model, loader, optimizer, n_classes, bag_weight, writer = None, loss_fn = None):
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.train()
     model.to(device)
@@ -281,7 +265,7 @@ def train_loop_clam(epoch, model, loader, patch_loader, optimizer, n_classes, ba
 
     print('\n')
 
-    for batch_idx, ((data, label), (patch_data, patch_label)) in enumerate(zip(loader, patch_loader)):
+    for batch_idx, (data, label) in enumerate(loader):
         data, label = data.to(device), label.to(device)
 
         # Ensure the model is on the correct device
@@ -308,17 +292,9 @@ def train_loop_clam(epoch, model, loader, patch_loader, optimizer, n_classes, ba
         train_center_loss += center_loss_value
         
         
-        # patch level data
-        patch_data, patch_label = patch_data.to(device), patch_label.to(device)
-        patch_logits, patch_Y_prob, patch_Y_hat, _, patch_instance_dict, _, _ = model(patch_data, label=patch_label, instance_eval=False)
-        patch_loss = loss_fn(patch_logits, patch_label)
-        
         lambda_c = 0.5
-        patch_weight = 0.75
         # LOSS COMPUTATION
         total_loss = bag_weight * loss + (1 - bag_weight) * instance_loss + lambda_c * center_loss
-        total_loss = (1 - patch_weight) * total_loss + patch_weight * patch_loss
-
 
         # BACKWARD PASS
         total_loss.backward()
@@ -366,11 +342,7 @@ def train_loop_clam(epoch, model, loader, patch_loader, optimizer, n_classes, ba
         # Feature embeddings
 
         patch_embeddings.append(patch_feature_embeddings.detach().cpu().numpy())
-        #patch_labels.append([label.detach().cpu().numpy()] * 10)
-        num_embeddings = patch_feature_embeddings.size(0)  # Get the number of patch embeddings
-        repeated_labels = [label.detach().cpu().numpy()] * num_embeddings  # Repeat the label for each embedding
-        patch_labels.append(repeated_labels)
-
+        patch_labels.append([label.detach().cpu().numpy()] * 15)
         slide_embeddings.append(slide_feature_embeddings.detach().cpu().numpy())
         labels.append(label.detach().cpu().numpy())      
 
@@ -412,7 +384,7 @@ def train_loop_clam(epoch, model, loader, patch_loader, optimizer, n_classes, ba
 
     slide_embeddings = np.concatenate(slide_embeddings, axis=0)
     labels = np.concatenate(labels, axis=0)
-    
+
     # Log embeddings to TensorBoard
     writer.add_embedding(
         mat=patch_embeddings,
@@ -536,16 +508,13 @@ def validate(cur, epoch, model, loader, n_classes, early_stopping = None, writer
 
     return False
 
-def validate_clam(cur, epoch, model, loader, patch_val_loader, n_classes, early_stopping = None, writer = None, loss_fn = None, results_dir = None):
+def validate_clam(cur, epoch, model, loader, n_classes, early_stopping = None, writer = None, loss_fn = None, results_dir = None):
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.eval()
     acc_logger = Accuracy_Logger(n_classes=n_classes)
     inst_logger = Accuracy_Logger(n_classes=n_classes)
     val_loss = 0.
     val_error = 0.
-
-    patch_val_loss = 0.0
-    patch_val_error = 0.0
 
     val_inst_loss = 0.
     val_inst_acc = 0.
@@ -579,22 +548,9 @@ def validate_clam(cur, epoch, model, loader, patch_val_loader, n_classes, early_
             
             error = calculate_error(Y_hat, label)
             val_error += error
-        
-        for batch_idx, (data, label) in enumerate(patch_val_loader):
-            data, label = data.to(device), label.to(device)
-            logits, Y_prob, Y_hat, _, _, _, _ = model(data)
-            loss = loss_fn(logits, label)
-
-            patch_val_loss += loss.item()
-            error = calculate_error(Y_hat, label)
-            patch_val_error += error
-
 
     val_error /= len(loader)
     val_loss /= len(loader)
-
-    patch_val_loss /= len(patch_val_loader)
-    patch_val_error /= len(patch_val_loader)
 
     if n_classes == 2:
         auc = roc_auc_score(labels, prob[:, 1])
@@ -623,8 +579,6 @@ def validate_clam(cur, epoch, model, loader, patch_val_loader, n_classes, early_
         writer.add_scalar('val/auc', auc, epoch)
         writer.add_scalar('val/error', val_error, epoch)
         writer.add_scalar('val/inst_loss', val_inst_loss, epoch)
-        writer.add_scalar('val_patch/loss', patch_val_loss, epoch)
-        writer.add_scalar('val_patch/error', patch_val_error, epoch)
 
 
     for i in range(n_classes):
@@ -645,11 +599,10 @@ def validate_clam(cur, epoch, model, loader, patch_val_loader, n_classes, early_
 
     return False
 
-def summary(model, loader, patch_loader, n_classes):
+def summary(model, loader, n_classes):
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.eval()
-
     acc_logger = Accuracy_Logger(n_classes=n_classes)
+    model.eval()
     test_loss = 0.
     test_error = 0.
 
@@ -699,58 +652,6 @@ def summary(model, loader, patch_loader, n_classes):
                 aucs.append(float('nan'))
 
         auc = np.nanmean(np.array(aucs))
-
-    # Additional summary on patch level data
-    patch_acc_logger = Accuracy_Logger(n_classes=n_classes)
-    patch_test_loss = 0.
-    patch_test_error = 0.
-
-    patch_all_probs = np.zeros((len(patch_loader), n_classes))
-    patch_all_labels = np.zeros(len(patch_loader))
-
-    patch_slide_ids = patch_loader.dataset.slide_data['slide_id']
-    patch_patient_results = {}
-
-    patch_true_labels = []  # To store true class labels
-    patch_predicted_labels = []  # To store predicted class labels
-
-    for batch_idx, (data, label) in enumerate(patch_loader):
-        data, label = data.to(device), label.to(device)
-        slide_id = patch_slide_ids.iloc[batch_idx]
-        with torch.no_grad():
-            logits, Y_prob, Y_hat, _, _, _, _ = model(data)
-
-        #############################################
-        _, predicted = torch.max(logits, 1)
-        patch_true_labels.extend(label.cpu().numpy())
-        patch_predicted_labels.extend(predicted.cpu().numpy())
-        #############################################
-
-        patch_acc_logger.log(Y_hat, label)
-        probs = Y_prob.cpu().numpy()
-        patch_all_probs[batch_idx] = probs
-        patch_all_labels[batch_idx] = label.item()
-        
-        patch_patient_results.update({slide_id: {'slide_id': np.array(slide_id), 'prob': probs, 'label': label.item()}})
-        error = calculate_error(Y_hat, label)
-        patch_test_error += error
-
-    patch_test_error /= len(loader)
-
-    if n_classes == 2:
-        patch_auc = roc_auc_score(patch_all_labels, patch_all_probs[:, 1])
-        patch_aucs = []
-    else:
-        patch_aucs = []
-        patch_binary_labels = label_binarize(patch_all_labels, classes=[i for i in range(n_classes)])
-        for class_idx in range(n_classes):
-            if class_idx in patch_all_labels:
-                fpr, tpr, _ = roc_curve(patch_binary_labels[:, class_idx], patch_all_probs[:, class_idx])
-                patch_aucs.append(calc_auc(fpr, tpr))
-            else:
-                patch_aucs.append(float('nan'))
-
-        patch_auc = np.nanmean(np.array(patch_aucs))
 
 
     return patient_results, test_error, auc, acc_logger, true_labels, predicted_labels

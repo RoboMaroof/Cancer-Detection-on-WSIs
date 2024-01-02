@@ -4,6 +4,7 @@ import time
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import multiprocessing as mp
+from multiprocessing import shared_memory
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -267,6 +268,7 @@ class WholeSlideImage(object):
 
     def _getPatchGenerator(self, cont, cont_idx, patch_level, save_path, patch_size=256, step_size=256, custom_downsample=1,
         white_black=True, white_thresh=15, black_thresh=50, contour_fn='four_pt', use_padding=True):
+        print("Successss########################################################")
         start_x, start_y, w, h = cv2.boundingRect(cont) if cont is not None else (0, 0, self.level_dim[patch_level][0], self.level_dim[patch_level][1])
         print("Bounding Box:", start_x, start_y, w, h)
         print("Contour Area:", cv2.contourArea(cont))
@@ -368,6 +370,8 @@ class WholeSlideImage(object):
         
         return level_downsamples
 
+
+    
     
     def process_contours(self, save_path, patch_level=0, patch_size=256, step_size=256, **kwargs):
         save_path_hdf5 = os.path.join(save_path, str(self.name) + '.h5')
@@ -391,6 +395,25 @@ class WholeSlideImage(object):
 
         return self.hdf5_file
 
+    @staticmethod
+    def process_patch(coord, patch_level, patch_size, contour_holes, ref_patch_size, cont_check_fn, shm_name):
+        wsi = shared_memory.SharedMemory(name=shm_name)
+        x, y = coord
+        patch_gray = wsi.read_region((x, y), patch_level, (patch_size, patch_size)).convert('L')
+        patch_array = np.array(patch_gray)
+
+        # Calculate percentage of white pixels in the patch
+        white_percentage = np.sum(patch_array > 150) / (patch_size * patch_size)
+
+        if white_percentage > 0.5:
+            return None
+
+        result = WholeSlideImage.process_coord_candidate(coord, contour_holes, ref_patch_size[0], cont_check_fn)
+
+        if result is not None:
+            return result
+        else:
+            return None
 
     def process_contour(self, cont, contour_holes, patch_level, save_path, patch_size = 256, step_size = 256,
         contour_fn='four_pt', use_padding=True, top_left=None, bot_right=None):
@@ -450,6 +473,32 @@ class WholeSlideImage(object):
         x_coords, y_coords = np.meshgrid(x_range, y_range, indexing='ij')
         coord_candidates = np.array([x_coords.flatten(), y_coords.flatten()]).transpose()
 
+        num_workers = mp.cpu_count()
+        if num_workers > 4:
+            num_workers = 4
+        pool = mp.Pool(num_workers)
+
+        # Create shared memory for image data
+        wsi_data = np.array(self.wsi.read_region((0, 0), patch_level, self.wsi.dimensions).convert('RGB'))
+        shm = shared_memory.SharedMemory(create=True, size=wsi_data.nbytes)
+        np.copyto(np.ndarray(shape=wsi_data.shape, dtype=wsi_data.dtype, buffer=shm.buf), wsi_data)
+
+        iterable = [(coord, patch_level, patch_size, contour_holes, ref_patch_size[0], cont_check_fn, shm.name) for coord in coord_candidates]
+        results = pool.starmap(self.process_patch, iterable)
+
+
+        results = [result for result in results if result is not None]
+
+        print("Relevant patches", len(results))
+        print("Empty patches", len(coord_candidates) - len(results))
+        results = np.array(results)
+
+        shm.close()
+        shm.unlink()
+
+
+
+        '''
         results = []
         empt_patches = 0
         relevant_patches = 0
@@ -458,9 +507,9 @@ class WholeSlideImage(object):
             patch_gray = self.wsi.read_region((x, y), patch_level, (patch_size, patch_size)).convert('L')
             patch_array = np.array(patch_gray)
             # Calculate percentage of white pixels in the patch
-            white_percentage = np.sum(patch_array > 200) / (patch_size * patch_size)
+            white_percentage = np.sum(patch_array > 175) / (patch_size * patch_size)
 
-            if white_percentage > 0.75:
+            if white_percentage > 0.5:
                 empt_patches += 1
                 continue
             
@@ -473,6 +522,17 @@ class WholeSlideImage(object):
         print("Relevant patches", relevant_patches)
         print("Empty patches", empt_patches)
         results = np.array(results)
+        '''
+
+        '''
+        iterable = [(coord, contour_holes, ref_patch_size[0], cont_check_fn) for coord in coord_candidates]
+        results = pool.starmap(WholeSlideImage.process_coord_candidate, iterable)
+        pool.close()
+
+        results = np.array([result for result in results if result is not None])
+        # Filter out patches with more than 50% empty space
+        results = [(coord, self.get_patch(coord, patch_size)) for coord in results if not self.is_patch_empty(self.get_patch(coord, patch_size))]
+        '''
 
         print('Extracted {} coordinates'.format(len(results)))
 

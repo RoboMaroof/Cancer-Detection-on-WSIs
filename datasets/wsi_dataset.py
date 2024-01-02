@@ -58,18 +58,24 @@ class Wsi_Region(Dataset):
         # patch size in reference to level 0
         self.ref_size = tuple((np.array(patch_size) * np.array(self.ref_downsample)).astype(int)) 
         
-        if self.custom_downsample > 1:
-            self.target_patch_size = patch_size
-            patch_size = tuple((np.array(patch_size) * np.array(self.ref_downsample) * custom_downsample).astype(int))
-            step_size = tuple((np.array(step_size) * custom_downsample).astype(int))
-            self.ref_size = patch_size
+        #if self.custom_downsample > 1:
+        self.target_patch_size = patch_size
+        patch_size = tuple((np.array(patch_size) * np.array(self.ref_downsample) * custom_downsample).astype(int))
+        
+        step_size = tuple((np.array(step_size) * custom_downsample).astype(int))
+        self.ref_size = patch_size
+        '''
         else:
             step_size = tuple((np.array(step_size)).astype(int))
             self.ref_size = tuple((np.array(patch_size) * np.array(self.ref_downsample)).astype(int)) 
+        '''
         
         self.wsi = wsi_object.wsi
         self.level = level
         self.patch_size = patch_size
+
+        print('changed patch size')
+        print(patch_size)
             
         if not use_center_shift:
             center_shift = 0.

@@ -9,6 +9,12 @@ import cv2
 
 def isWhitePatch(patch, satThresh=5):
     patch_hsv = cv2.cvtColor(patch, cv2.COLOR_RGB2HSV)
+    patch_gs = patch.convert("L")
+    # Calculate the percentage of empty pixels in the greyscale patch
+    empty_percentage = np.sum(np.array(patch_gs) > 150) / float(patch_gs.size)
+    # Skip the patch if the empty pixel percentage is greater than the threshold
+    if empty_percentage > 0.5:
+        return False
     return True if np.mean(patch_hsv[:,:,1]) < satThresh else False
 
 def isBlackPatch(patch, rgbThresh=40):

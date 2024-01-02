@@ -1,6 +1,6 @@
 # internal imports
-from wsi_core.WholeSlideImage import WholeSlideImage
-from wsi_core.wsi_utils import StitchCoords
+from wsi_core.WholeSlideImage import WholeSlideImage 
+from wsi_core.wsi_utils import StitchPatches
 from wsi_core.batch_process_utils import initialize_df
 # other imports
 import os
@@ -9,106 +9,66 @@ import time
 import argparse
 import pdb
 import pandas as pd
-import openslide
 
-
-def stitching(file_path, wsi_object, downscale = 64):
+def stitching(file_path, downscale = 64):
 	start = time.time()
-	heatmap = StitchCoords(file_path, wsi_object, downscale=downscale, bg_color=(0,0,0), alpha=-1, draw_grid=False)
+	heatmap = StitchPatches(file_path, downscale=downscale, bg_color=(0,0,0), alpha=-1, draw_grid=False)
 	total_time = time.time() - start
 	
 	return heatmap, total_time
 
-def segment(WSI_object, seg_params = None, filter_params = None, mask_file = None):
+def segment(WSI_object, seg_params, filter_params):
 	### Start Seg Timer
 	start_time = time.time()
-	# Use segmentation file
-	if mask_file is not None:
-		WSI_object.initSegmentation(mask_file)
-	# Segment	
-	else:
-		WSI_object.segmentTissue(**seg_params, filter_params=filter_params)
+
+	# Segment
+	WSI_object.segmentTissue(**seg_params, filter_params=filter_params)
 
 	### Stop Seg Timers
 	seg_time_elapsed = time.time() - start_time   
 	return WSI_object, seg_time_elapsed
-
-
-def get_magnification(WSI_object):
-    slide = openslide.OpenSlide(WSI_object)
-    magnification = slide.properties.get("aperio.AppMag")
-    slide.close()
-    return magnification
 
 def patching(WSI_object, **kwargs):
 	### Start Patch Timer
 	start_time = time.time()
 
 	# Patch
-	file_path = WSI_object.process_contours(**kwargs)
-
+	file_path = WSI_object.createPatches_bag_hdf5(**kwargs, save_coord=True)
 
 	### Stop Patch Timer
 	patch_time_elapsed = time.time() - start_time
 	return file_path, patch_time_elapsed
 
-
 def seg_and_patch(source, save_dir, patch_save_dir, mask_save_dir, stitch_save_dir, 
-				  patch_size = 256, step_size = 256, 
+				  patch_size = 256, step_size = 256, custom_downsample=1, 
 				  seg_params = {'seg_level': -1, 'sthresh': 8, 'mthresh': 7, 'close': 4, 'use_otsu': False,
 				  'keep_ids': 'none', 'exclude_ids': 'none'},
-				  filter_params = {'a_t':100, 'a_h': 16, 'max_n_holes':8}, 
-				  vis_params = {'vis_level': -1, 'line_thickness': 500},
-				  patch_params = {'use_padding': True, 'contour_fn': 'four_pt'},
+				  filter_params = {'a_t':100, 'a_h': 16, 'max_n_holes':8 }, 
+				  vis_params = {'vis_level': -1, 'line_thickness': 250},
+				  patch_params = {'white_thresh': 5, 'black_thresh': 40, 'use_padding': True, 'contour_fn': 'four_pt'},
 				  patch_level = 0,
 				  use_default_params = False, 
 				  seg = False, save_mask = True, 
 				  stitch= False, 
-				  patch = False, auto_skip=True, process_list = None,
-				  svs_list_file=None):	# Additional argument for slide list csv file
+				  patch = False, auto_skip=True, process_list = None):
 	
 
-	print("Start")
 
 	slides = sorted(os.listdir(source))
 	slides = [slide for slide in slides if os.path.isfile(os.path.join(source, slide))]
 
-	'''
 	if process_list is None:
-		df = initialize_df(slides, seg_params, filter_params, vis_params, patch_params)
+		df = initialize_df(slides, seg_params, filter_params, vis_params, patch_params, save_patches=True)
 	
 	else:
 		df = pd.read_csv(process_list)
-		df = initialize_df(df, seg_params, filter_params, vis_params, patch_params)
-	'''
+		df = initialize_df(df, seg_params, filter_params, vis_params, patch_params, save_patches=True)
 
-	if process_list is None:
-		if svs_list_file:
-			svs_list_df = pd.read_csv(svs_list_file, header=None, names=['slide_id'])
-			slides = svs_list_df.squeeze().tolist()
-			slides = [slide + '.svs' if not slide.endswith('.svs') else slide for slide in slides]
-		else:
-			slides = sorted(os.listdir(source))
-			slides = [slide for slide in slides if os.path.isfile(os.path.join(source, slide))]
-		df = initialize_df(slides, seg_params, filter_params, vis_params, patch_params)
 
-	
-	print(df.head)
-	
 	mask = df['process'] == 1
 	process_stack = df[mask]
 
 	total = len(process_stack)
-
-	legacy_support = 'a' in df.keys()
-	if legacy_support:
-		print('detected legacy segmentation csv file, legacy support enabled')
-		df = df.assign(**{'a_t': np.full((len(df)), int(filter_params['a_t']), dtype=np.uint32),
-		'a_h': np.full((len(df)), int(filter_params['a_h']), dtype=np.uint32),
-		'max_n_holes': np.full((len(df)), int(filter_params['max_n_holes']), dtype=np.uint32),
-		'line_thickness': np.full((len(df)), int(vis_params['line_thickness']), dtype=np.uint32),
-		'contour_fn': np.full((len(df)), patch_params['contour_fn'])})
-
 	seg_times = 0.
 	patch_times = 0.
 	stitch_times = 0.
@@ -143,26 +103,13 @@ def seg_and_patch(source, save_dir, patch_save_dir, mask_save_dir, stitch_save_d
 			current_filter_params = {}
 			current_seg_params = {}
 			current_patch_params = {}
-
-
 			for key in vis_params.keys():
-				if legacy_support and key == 'vis_level':
-					df.loc[idx, key] = -1
 				current_vis_params.update({key: df.loc[idx, key]})
 
 			for key in filter_params.keys():
-				if legacy_support and key == 'a_t':
-					old_area = df.loc[idx, 'a']
-					seg_level = df.loc[idx, 'seg_level']
-					scale = WSI_object.level_downsamples[seg_level]
-					adjusted_area = int(old_area * (scale[0] * scale[1]) / (512 * 512))
-					current_filter_params.update({key: adjusted_area})
-					df.loc[idx, key] = adjusted_area
 				current_filter_params.update({key: df.loc[idx, key]})
 
 			for key in seg_params.keys():
-				if legacy_support and key == 'seg_level':
-					df.loc[idx, key] = -1
 				current_seg_params.update({key: df.loc[idx, key]})
 
 			for key in patch_params.keys():
@@ -206,9 +153,9 @@ def seg_and_patch(source, save_dir, patch_save_dir, mask_save_dir, stitch_save_d
 			df.loc[idx, 'status'] = 'failed_seg'
 			continue
 
-		df.loc[idx, 'vis_level'] = current_vis_params['vis_level']
-		df.loc[idx, 'seg_level'] = current_seg_params['seg_level']
-
+		if not process_list:
+			df.loc[idx, 'vis_level'] = current_vis_params['vis_level']
+			df.loc[idx, 'seg_level'] = current_seg_params['seg_level']
 
 		seg_time_elapsed = -1
 		if seg:
@@ -216,32 +163,21 @@ def seg_and_patch(source, save_dir, patch_save_dir, mask_save_dir, stitch_save_d
 
 		if save_mask:
 			mask = WSI_object.visWSI(**current_vis_params)
-			mask_path = os.path.join(mask_save_dir, slide_id+'.jpg')
+			mask_path = os.path.join(mask_save_dir, slide_id+'.png')
 			mask.save(mask_path)
 
 		patch_time_elapsed = -1 # Default time
 		if patch:
-			magnification = get_magnification(full_path)
-			print("Magnification of the slide is ", magnification)
-			# Update patch size based on magnification
-			if magnification == 40:
-				patch_size = 512
-				patch_level = 1
-				current_patch_params['patch_size'] = 512
-				current_patch_params['downsample_to'] = patch_size
-
 			current_patch_params.update({'patch_level': patch_level, 'patch_size': patch_size, 'step_size': step_size, 
-										 'save_path': patch_save_dir})
-			file_path, patch_time_elapsed = patching(WSI_object = WSI_object,  **current_patch_params,)
-			df.loc[idx, 'magnification'] = magnification
+										 'save_path': patch_save_dir, 'custom_downsample': custom_downsample})
+			file_path, patch_time_elapsed = patching(WSI_object = WSI_object, **current_patch_params)
 		
 		stitch_time_elapsed = -1
 		if stitch:
 			file_path = os.path.join(patch_save_dir, slide_id+'.h5')
-			if os.path.isfile(file_path):
-				heatmap, stitch_time_elapsed = stitching(file_path, WSI_object, downscale=64)
-				stitch_path = os.path.join(stitch_save_dir, slide_id+'.jpg')
-				heatmap.save(stitch_path)
+			heatmap, stitch_time_elapsed = stitching(file_path, downscale=64)
+			stitch_path = os.path.join(stitch_save_dir, slide_id+'.png')
+			heatmap.save(stitch_path)
 
 		print("segmentation took {} seconds".format(seg_time_elapsed))
 		print("patching took {} seconds".format(patch_time_elapsed))
@@ -280,10 +216,10 @@ parser.add_argument('--preset', default=None, type=str,
 					help='predefined profile of default segmentation and filter parameters (.csv)')
 parser.add_argument('--patch_level', type=int, default=0, 
 					help='downsample level at which to patch')
+parser.add_argument('--custom_downsample', type= int, choices=[1,2], default=1, 
+					help='custom downscale when native downsample is not available (only tested w/ 2x downscale)')
 parser.add_argument('--process_list',  type = str, default=None,
 					help='name of list of images to process with parameters (.csv)')
-parser.add_argument('--svs_list_file', type=str, default=None,
-                        help='CSV file containing names of SVS files to be considered')
 
 if __name__ == '__main__':
 	args = parser.parse_args()
@@ -314,11 +250,12 @@ if __name__ == '__main__':
 		if key not in ['source']:
 			os.makedirs(val, exist_ok=True)
 
+
 	seg_params = {'seg_level': -1, 'sthresh': 8, 'mthresh': 7, 'close': 4, 'use_otsu': False,
 				  'keep_ids': 'none', 'exclude_ids': 'none'}
-	filter_params = {'a_t':100, 'a_h': 16, 'max_n_holes':8}
+	filter_params = {'a_t':100, 'a_h': 16, 'max_n_holes':8 }
 	vis_params = {'vis_level': -1, 'line_thickness': 250}
-	patch_params = {'use_padding': True, 'contour_fn': 'four_pt'}
+	patch_params = {'white_thresh': 5, 'black_thresh': 40, 'use_padding': True, 'contour_fn': 'four_pt'}
 
 	if args.preset:
 		preset_df = pd.read_csv(os.path.join('presets', args.preset))
@@ -344,7 +281,6 @@ if __name__ == '__main__':
 	seg_times, patch_times = seg_and_patch(**directories, **parameters,
 											patch_size = args.patch_size, step_size=args.step_size, 
 											seg = args.seg,  use_default_params=False, save_mask = True, 
-											stitch= args.stitch,
+											stitch= args.stitch, custom_downsample = args.custom_downsample, 
 											patch_level=args.patch_level, patch = args.patch,
-											process_list = process_list, auto_skip=args.no_auto_skip,
-											svs_list_file=args.svs_list_file)  # Pass the svs_list_file argument)
+											process_list = process_list, auto_skip=args.no_auto_skip)

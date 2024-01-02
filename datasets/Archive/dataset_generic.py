@@ -73,11 +73,11 @@ class Generic_WSI_Classification_Dataset(Dataset):
 
 		self.slide_data = slide_data
 
-		self.patient_data_prep(patient_voting) # aggregates slide-level data into patient-level data by applying a specified voting mechanism
-		self.cls_ids_prep() # Patient and Slide level Class IDs
+		self.patient_data_prep(patient_voting)
+		self.cls_ids_prep()
 
 		if print_info:
-			self.summarize() # Print Summary
+			self.summarize()
 
 	def cls_ids_prep(self):
 		# store ids corresponding each class at the patient or case level
@@ -164,27 +164,16 @@ class Generic_WSI_Classification_Dataset(Dataset):
 		else:
 			settings.update({'cls_ids' : self.slide_cls_ids, 'samples': len(self.slide_data)})
 
-		self.split_gen = generate_split(**settings)     # <--- sampled_train_ids, all_val_ids, all_test_ids
-		
-		
-	def update_class_ids(self, data):
-		# Update slide_cls_ids based on the provided data
-		self.slide_cls_ids = [[] for _ in range(self.num_classes)]
-		for i in range(self.num_classes):
-			self.slide_cls_ids[i] = np.where(data['label'] == i)[0]
-	
-	def set_splits(self,start_from=None):               
+		self.split_gen = generate_split(**settings)
+
+	def set_splits(self,start_from=None):
 		if start_from:
-			ids = nth(self.split_gen, start_from)   #  retrieve the n-th element from the iterator split_gen
+			ids = nth(self.split_gen, start_from)
 
-		else:                               # start_from=None
-			#obtain the next split from the generator
-			ids = next(self.split_gen)      # self.split_gen = [sampled_train_ids, all_val_ids, all_test_ids]
-			# The next function retrieves the next item from the iterator split_gen
-			# If self.split_gen was previously called, next would retrieve the item following the last one returned.
-			# If the generator has no more items to yield (i.e., it has reached the end of the sequence it generates), calling next(self.split_gen) will raise a StopIteration exception.
+		else:
+			ids = next(self.split_gen)
 
-		if self.patient_strat:                          # ensure that each split (train, validation, test) has a representative distribution of patients
+		if self.patient_strat:
 			slide_ids = [[] for i in range(len(ids))] 
 
 			for split in range(len(ids)): 
@@ -197,18 +186,7 @@ class Generic_WSI_Classification_Dataset(Dataset):
 
 		else:
 			self.train_ids, self.val_ids, self.test_ids = ids
-			
-	def map_patient_ids_to_slide_ids(self, patient_ids):
-		slide_ids = []
-		for idx in patient_ids:
-			if idx < len(self.patient_data['case_id']):
-				case_id = self.patient_data['case_id'][idx]
-				slide_indices = self.slide_data[self.slide_data['case_id'] == case_id].index.tolist()
-				slide_ids.extend(slide_indices)
-			else:
-				print(f"Invalid index {idx} encountered, skipping.")
-		return slide_ids
-	
+
 	def get_split_from_df(self, all_splits, split_key='train'):
 		split = all_splits[split_key]
 		split = split.dropna().reset_index(drop=True)
@@ -219,6 +197,7 @@ class Generic_WSI_Classification_Dataset(Dataset):
 			split = Generic_Split(df_slice, data_dir=self.data_dir, num_classes=self.num_classes)
 		else:
 			split = None
+		
 		return split
 
 	def get_merged_split_from_df(self, all_splits, split_keys=['train']):
@@ -241,7 +220,7 @@ class Generic_WSI_Classification_Dataset(Dataset):
 	def return_splits(self, from_id=True, csv_path=None):
 
 
-		if from_id:     # Return data splits for training, validation, and testing, based on pre-defined IDs
+		if from_id:
 			if len(self.train_ids) > 0:
 				train_data = self.slide_data.loc[self.train_ids].reset_index(drop=True)
 				train_split = Generic_Split(train_data, data_dir=self.data_dir, num_classes=self.num_classes)
@@ -264,14 +243,15 @@ class Generic_WSI_Classification_Dataset(Dataset):
 				test_split = None
 			
 		
-		else:       # Return data splits for training, validation, and testing, based on csv file
+		else:
 			assert csv_path 
 			all_splits = pd.read_csv(csv_path, dtype=self.slide_data['slide_id'].dtype)  # Without "dtype=self.slide_data['slide_id'].dtype", read_csv() will convert all-number columns to a numerical type. Even if we convert numerical columns back to objects later, we may lose zero-padding in the process; the columns must be correctly read in from the get-go. When we compare the individual train/val/test columns to self.slide_data['slide_id'] in the get_split_from_df() method, we cannot compare objects (strings) to numbers or even to incorrectly zero-padded objects/strings. An example of this breaking is shown in https://github.com/andrew-weisman/clam_analysis/tree/main/datatype_comparison_bug-2021-12-01.
 			#all_splits = pd.read_csv(csv_path)
 			train_split = self.get_split_from_df(all_splits, 'train')
 			val_split = self.get_split_from_df(all_splits, 'val')
 			test_split = self.get_split_from_df(all_splits, 'test')
-		return train_split, val_split, test_split   # tuple of train_split, val_split, and test_split. Each of these elements an instance of the Generic_Split class 
+			
+		return train_split, val_split, test_split
 
 	def get_list(self, ids):
 		return self.slide_data['slide_id'][ids]
@@ -288,7 +268,7 @@ class Generic_WSI_Classification_Dataset(Dataset):
 			index = [list(self.label_dict.keys())[list(self.label_dict.values()).index(i)] for i in range(self.num_classes)]
 			columns = ['train', 'val', 'test']
 			df = pd.DataFrame(np.full((len(index), len(columns)), 0, dtype=np.int32), index= index,
-							columns= columns)   # used to describe the number of samples per class in each dataset (training, validation, test)
+							columns= columns)
 
 		count = len(self.train_ids)
 		print('\nnumber of training samples: {}'.format(count))

@@ -12,7 +12,7 @@ import pandas as pd
 from utils.utils import *
 from math import floor
 from utils.eval_utils import initiate_model as initiate_model
-from models.model_clam import CLAM_MB, CLAM_SB
+from models.model_clam_upd import CLAM_MB, CLAM_SB
 from models.resnet_custom import resnet50_baseline
 from types import SimpleNamespace
 from collections import namedtuple
@@ -35,7 +35,7 @@ def infer_single_slide(model, features, label, reverse_label_dict, k=1):
 	with torch.no_grad():
 		if isinstance(model, (CLAM_SB, CLAM_MB)):
 			model_results_dict = model(features)
-			logits, Y_prob, Y_hat, A, _ = model(features)
+			logits, Y_prob, Y_hat, A, _, _, _ = model(features)
 			Y_hat = Y_hat.item()
 
 			if isinstance(model, (CLAM_MB,)):

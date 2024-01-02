@@ -63,23 +63,8 @@ def main(args):
         #dataset object of datasets/dataset_generic.py --> Generic_MIL_Dataset class
         train_dataset, val_dataset, test_dataset = dataset.return_splits(from_id=False, 
                 csv_path='{}/splits_{}.csv'.format(args.split_dir, i))
-        patch_train_dataset, patch_val_dataset, patch_test_dataset = dataset.return_splits(from_id=False, 
-                csv_path='{}/patch_splits_{}.csv'.format(args.split_dir, i))
-        print('PRINTING')
-        print(f"Size of train_dataset: {len(train_dataset)}")
-        print(f"Size of train_dataset: {len(val_dataset)}")
-        print(f"Size of train_dataset: {len(test_dataset)}")
-        print('{}/splits_{}.csv'.format(args.split_dir, i))
-        print(f"Size of patch_train_dataset: {len(patch_train_dataset)}")
-        print(f"Size of patch_train_dataset: {len(patch_val_dataset)}")
-        print(f"Size of patch_train_dataset: {len(patch_test_dataset)}")
-        print('{}/patch_splits_{}.csv'.format(args.split_dir, i))
-
-
         datasets = (train_dataset, val_dataset, test_dataset)
-        patch_datasets = (patch_train_dataset, patch_val_dataset, patch_test_dataset)
-
-        results, test_auc, val_auc, test_acc, val_acc, true_labels, predicted_labels  = train(datasets, patch_datasets, i, args)   #TO utils/core_utils.py --> TRAIN 
+        results, test_auc, val_auc, test_acc, val_acc, true_labels, predicted_labels  = train(datasets, i, args)   #TO utils/core_utils.py --> TRAIN 
         # RETURNS: results, test_auc, val_auc, test_acc, val_acc FOR EACH FOLD
         all_test_auc.append(test_auc)
         all_val_auc.append(val_auc)
@@ -88,6 +73,21 @@ def main(args):
 
         test_balanced_acc = balanced_accuracy_score(true_labels, predicted_labels)
         test_f1 = f1_score(true_labels, predicted_labels, average='weighted')  # 'weighted' accounts for multi-class
+        '''
+        ap_scores = []
+        predicted_labels = np.array(predicted_labels)
+        print(np.unique(predicted_labels))
+        true_labels = np.array(true_labels)
+        print(np.unique(true_labels))
+        for class_idx in range(args.n_classes):
+            true_labels_one_class = (true_labels == class_idx)
+            predicted_scores_one_class = predicted_labels[:, class_idx]
+            ap_score = average_precision_score(true_labels_one_class, predicted_scores_one_class)
+            ap_scores.append(ap_score)
+
+        # Calculate mean average precision (mAP)
+        test_map = np.mean(ap_scores)
+        '''
 
 
         average_precisions = {}
@@ -239,7 +239,7 @@ elif args.task == 'task_2_tumor_subtyping':
     #args.n_classes=3
     args.n_classes=4
     
-    dataset = Generic_MIL_Dataset(csv_path = '/work/scratch/abdul/CLAM/Renal/Trials/08_Combined_Datasets_281223/02_Normal_Vs_Subtyping_COMBINED_DATASETS_SELECTED.csv',
+    dataset = Generic_MIL_Dataset(csv_path = '/work/scratch/abdul/CLAM/Renal/Trials/05_Subtyping_with_Normal_171023/Normal_Vs_Subtyping_dataset_SELECTED.csv',
                             data_dir= os.path.join(args.data_root_dir, 'tumor_subtyping_resnet_features'),
                             shuffle = False, 
                             seed = args.seed, 
@@ -265,9 +265,9 @@ if not os.path.isdir(args.results_dir):
 
 #SPLITS DIR
 if args.split_dir is None:
-    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/08_Combined_Datasets_281223/splits', args.task+'_{}'.format(int(args.label_frac*100)))
+    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/05_Subtyping_with_Normal_171023/splits', args.task+'_{}'.format(int(args.label_frac*100)))
 else:
-    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/08_Combined_Datasets_281223/splits', args.split_dir)
+    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/05_Subtyping_with_Normal_171023/splits', args.split_dir)
     
 
 print('split_dir: ', args.split_dir)
