@@ -29,10 +29,22 @@ from sklearn.metrics import balanced_accuracy_score, f1_score, average_precision
 
 
 def main(args):
+    # Define the hyperparameter subdirectory name
+    hyperparam_subdir = f"lr_{args.lr}_reg_{args.reg}_bagweight_{args.bag_weight}_centerlossweight_{args.centerloss_weight}_patchlossweight_{args.patchloss_weight}"
+    
+    unique_results_dir = os.path.join(args.results_dir, hyperparam_subdir)
+    if not os.path.isdir(unique_results_dir):
+        os.makedirs(unique_results_dir)
+    
+    # Update the args.results_dir to the new unique directory
+    args.results_dir = unique_results_dir
+
+    '''
     # create results directory if necessary
     if not os.path.isdir(args.results_dir):
         os.mkdir(args.results_dir)
-
+    '''
+    
     #START FOLD
     if args.k_start == -1:
         start = 0
@@ -65,15 +77,6 @@ def main(args):
                 csv_path='{}/splits_{}.csv'.format(args.split_dir, i))
         patch_train_dataset, patch_val_dataset, patch_test_dataset = dataset.return_splits(from_id=False, 
                 csv_path='{}/patch_splits_{}.csv'.format(args.split_dir, i))
-        print('PRINTING')
-        print(f"Size of train_dataset: {len(train_dataset)}")
-        print(f"Size of train_dataset: {len(val_dataset)}")
-        print(f"Size of train_dataset: {len(test_dataset)}")
-        print('{}/splits_{}.csv'.format(args.split_dir, i))
-        print(f"Size of patch_train_dataset: {len(patch_train_dataset)}")
-        print(f"Size of patch_train_dataset: {len(patch_val_dataset)}")
-        print(f"Size of patch_train_dataset: {len(patch_test_dataset)}")
-        print('{}/patch_splits_{}.csv'.format(args.split_dir, i))
 
 
         datasets = (train_dataset, val_dataset, test_dataset)
@@ -136,7 +139,7 @@ def main(args):
 #START POINT --> GO DOWN
 # Generic training settings
 parser = argparse.ArgumentParser(description='Configurations for WSI Training')
-parser.add_argument('--data_root_dir', type=str, default=None, 
+parser.add_argument('--data_root_dir', type=str, default='/work/scratch/abdul/CLAM/Renal/features_RESULTS_2_Combined_Datasets/', 
                     help='data directory')
 parser.add_argument('--max_epochs', type=int, default=200,
                     help='maximum number of epochs to train (default: 200)')
@@ -151,35 +154,44 @@ parser.add_argument('--seed', type=int, default=1,
 parser.add_argument('--k', type=int, default=10, help='number of folds (default: 10)')
 parser.add_argument('--k_start', type=int, default=-1, help='start fold (default: -1, last fold)')
 parser.add_argument('--k_end', type=int, default=-1, help='end fold (default: -1, first fold)')
-parser.add_argument('--results_dir', default='./results', help='results directory (default: ./results)')
+parser.add_argument('--results_dir', default='/work/scratch/abdul/CLAM/Renal/Trials/09_Hyperparameter_Tuning/results', help='results directory (default: ./results)')
 parser.add_argument('--split_dir', type=str, default=None, 
                     help='manually specify the set of splits to use, ' 
                     +'instead of infering from the task and label_frac argument (default: None)')
-parser.add_argument('--log_data', action='store_true', default=False, help='log data using tensorboard')
+parser.add_argument('--log_data', action='store_true', default=True, help='log data using tensorboard')
 parser.add_argument('--testing', action='store_true', default=False, help='debugging tool')
-parser.add_argument('--early_stopping', action='store_true', default=False, help='enable early stopping')
+parser.add_argument('--early_stopping', action='store_true', default=True, help='enable early stopping')
 parser.add_argument('--opt', type=str, choices = ['adam', 'sgd'], default='adam')
-parser.add_argument('--drop_out', action='store_true', default=False, help='enable dropout (p=0.25)')
+parser.add_argument('--drop_out', action='store_true', default=True, help='enable dropout (p=0.25)')
 parser.add_argument('--bag_loss', type=str, choices=['svm', 'ce'], default='ce',
                      help='slide-level classification loss function (default: ce)')
 parser.add_argument('--model_type', type=str, choices=['clam_sb', 'clam_mb', 'mil'], default='clam_sb', 
                     help='type of model (default: clam_sb, clam w/ single attention branch)')
-parser.add_argument('--exp_code', type=str, help='experiment code for saving results')
-parser.add_argument('--weighted_sample', action='store_true', default=False, help='enable weighted sampling')
+parser.add_argument('--exp_code', type=str, default='task_2_tumor_subtyping_CLAM_100',help='experiment code for saving results')
+parser.add_argument('--weighted_sample', action='store_true', default=True, help='enable weighted sampling')
 parser.add_argument('--model_size', type=str, choices=['small', 'big'], default='small', help='size of model, does not affect mil')
-parser.add_argument('--task', type=str, choices=['task_1_tumor_vs_normal',  'task_2_tumor_subtyping'])
+parser.add_argument('--task', type=str, choices=['task_1_tumor_vs_normal',  'task_2_tumor_subtyping'], default='task_2_tumor_subtyping')
 ### CLAM specific options
 parser.add_argument('--no_inst_cluster', action='store_true', default=False,
                      help='disable instance-level clustering')
-parser.add_argument('--inst_loss', type=str, choices=['svm', 'ce', None], default=None,
+parser.add_argument('--inst_loss', type=str, choices=['svm', 'ce', None], default='svm',
                      help='instance-level clustering loss function (default: None)')
-parser.add_argument('--subtyping', action='store_true', default=False, 
+parser.add_argument('--subtyping', action='store_true', default=True, 
                      help='subtyping problem')
 parser.add_argument('--bag_weight', type=float, default=0.7,
                     help='clam: weight coefficient for bag-level loss (default: 0.7)')
+parser.add_argument('--centerloss_weight', type=float, default=0.5,
+                    help='weight coefficient for center loss (default: 0.5)')
+parser.add_argument('--patchloss_weight', type=float, default=0.75,
+                    help='weight coefficient for patch level dataset loss (default: 0.75)')
+parser.add_argument('--lr_step_size', type=int, default=60,
+                    help='step size for learning rate decay (default: 60)')
+parser.add_argument('--lr_gamma', type=float, default=0.3,
+                    help='learning rate decay gamma (default: 0.3)')
 parser.add_argument('--B', type=int, default=8, help='numbr of positive/negative patches to sample for clam')
 args = parser.parse_args()
 device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def seed_torch(seed=7):
     import random
@@ -221,7 +233,7 @@ if args.model_type in ['clam_sb', 'clam_mb']:
 
 
 # LOAD DATASET according to CSV PATH
-print('\nLoad Dataset')
+# print('\nLoad Dataset')
 
 if args.task == 'task_1_tumor_vs_normal':
     args.n_classes=2
@@ -239,7 +251,7 @@ elif args.task == 'task_2_tumor_subtyping':
     #args.n_classes=3
     args.n_classes=4
     
-    dataset = Generic_MIL_Dataset(csv_path = '/work/scratch/abdul/CLAM/Renal/Trials/08_Combined_Datasets_281223/02_Normal_Vs_Subtyping_COMBINED_DATASETS_SELECTED.csv',
+    dataset = Generic_MIL_Dataset(csv_path = '/work/scratch/abdul/CLAM/Renal/Trials/09_Hyperparameter_Tuning/02_Normal_Vs_Subtyping_COMBINED_DATASETS_SELECTED.csv',
                             data_dir= os.path.join(args.data_root_dir, 'tumor_subtyping_resnet_features'),
                             shuffle = False, 
                             seed = args.seed, 
@@ -265,9 +277,9 @@ if not os.path.isdir(args.results_dir):
 
 #SPLITS DIR
 if args.split_dir is None:
-    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/08_Combined_Datasets_281223/splits', args.task+'_{}'.format(int(args.label_frac*100)))
+    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/09_Hyperparameter_Tuning/splits', args.task+'_{}'.format(int(args.label_frac*100)))
 else:
-    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/08_Combined_Datasets_281223/splits', args.split_dir)
+    args.split_dir = os.path.join('/work/scratch/abdul/CLAM/Renal/Trials/09_Hyperparameter_Tuning/splits', args.split_dir)
     
 
 print('split_dir: ', args.split_dir)

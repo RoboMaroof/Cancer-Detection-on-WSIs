@@ -23,7 +23,7 @@ parser.add_argument('--patch_level_dataset', action='store_true', default=False,
 
 args = parser.parse_args()
 
-csv_path = '/work/scratch/abdul/CLAM/Renal/Trials/08_Combined_Datasets_281223/02_Normal_Vs_Subtyping_COMBINED_DATASETS_SELECTED.csv'
+csv_path = '/work/scratch/abdul/CLAM/Renal/Trials/09_Hyperparameter_Tuning/Normal_Vs_Subtyping_PATCH_DATASET.csv'
 if args.task == 'task_1_tumor_vs_normal':
     args.n_classes=2
     dataset = Generic_WSI_Classification_Dataset(csv_path,
@@ -42,7 +42,7 @@ elif args.task == 'task_2_tumor_subtyping':
                             print_info = True,
                             #label_dict = {'KIRC':0, 'KIRP':1, 'KICH':2},
                             label_dict = {'KIRC':0, 'KIRP':1, 'KICH':2, 'Normal':3},
-                            label_level = 'slide',
+                            label_level = 'patch',
                             patient_strat= True,
                             patient_voting='maj',
                             ignore=[])
@@ -76,7 +76,7 @@ if __name__ == '__main__':
         label_fracs = [0.1, 0.25, 0.5, 0.75, 1.0]
     
     for lf in label_fracs:                  # Single loop
-        split_dir = '/work/scratch/abdul/CLAM/Renal/Trials/08_Combined_Datasets_281223/splits/'+ str(args.task) + '_{}'.format(int(lf * 100))
+        split_dir = '/work/scratch/abdul/CLAM/Renal/Trials/09_Hyperparameter_Tuning/splits/'+ str(args.task) + '_{}'.format(int(lf * 100))
         os.makedirs(split_dir, exist_ok=True)
 
         dataset.create_splits(k = args.k, val_num = val_num, test_num = test_num, label_frac=lf)

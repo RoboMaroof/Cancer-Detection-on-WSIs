@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.model_mil import MIL_fc, MIL_fc_mc
-from models.model_clam import CLAM_SB, CLAM_MB
+from models.model_clam import CLAM_SB
 import pdb
 import os
 import pandas as pd

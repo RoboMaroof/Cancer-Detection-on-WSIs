@@ -27,7 +27,16 @@ class CenterLoss(nn.Module):
         centers_batch = torch.gather(self.centers, 0, labels.view(-1, 1).expand(-1, self.feat_dim))
 
         criterion = nn.MSELoss()
-        center_loss = criterion(h, centers_batch)
+        intra_center_loss = criterion(h, centers_batch)
+
+        dist_matrix = torch.cdist(self.centers, self.centers, p=2)
+        mask = torch.eye(self.num_classes, device=self.centers.device).bool()
+        dist_matrix = dist_matrix.masked_fill(mask, 0)
+        # Penalize small distances (maximize distance)
+        inter_center_loss = -dist_matrix.sum() / (self.num_classes * (self.num_classes - 1))
+
+        # Combine the two losses
+        center_loss = self.alpha * intra_center_loss + (1 - self.alpha) * inter_center_loss
 
         return center_loss
 
@@ -169,7 +178,7 @@ class CLAM_SB(nn.Module):
         instance_loss = self.instance_loss_fn(logits, p_targets)
         return instance_loss, p_preds, p_targets
 
-    def forward(self, h, label=None, instance_eval=False, return_features=False, attention_only=False):
+    def forward(self, h, label=None, is_final_epochs = False, instance_eval=False, return_features=False, attention_only=False):
         device = h.device
         
         # h = data from train_loop_clam  --> Shape  K x D  K: No of patches in the WSL image   D:1024
@@ -232,105 +241,37 @@ class CLAM_SB(nn.Module):
             results_dict = {'instance_loss': total_inst_loss, 'inst_labels': np.array(all_targets), 
             'inst_preds': np.array(all_preds), 'center_loss': center_loss}
         else:
-            results_dict = {}
+            results_dict = {'center_loss': center_loss}
         if return_features:
             results_dict.update({'features': M})
         
-        ############
-        # Extract FEATURE EMBEDDINGS from the output of attention_net
 
-        # Get the indices of the top-k attention coefficients for each instance
-        # Ensure k does not exceed the number of patches
-        k = min(10, A.size(1))
-        topk_indices = torch.topk(A, k, dim=1)[1]
+        if is_final_epochs:
+            ############
+            # Extract FEATURE EMBEDDINGS from the output of attention_net
 
-        # Extract the rows of h corresponding to the top-k indices
-        patch_feature_embeddings = []
+            # Get the indices of the top-k attention coefficients for each instance
+            # Ensure k does not exceed the number of patches
+            k = min(15, A.size(1))
+            topk_indices = torch.topk(A, k, dim=1)[1]
 
-        for i, indices in enumerate(topk_indices[0]):
-            # Check that indices are within bounds
-            valid_indices = indices[indices < h.shape[0]]
-            if valid_indices.numel() > 0:
-                selected_rows = h[valid_indices, :]
-                patch_feature_embeddings.append(selected_rows)
+            # Extract the rows of h corresponding to the top-k indices
+            patch_feature_embeddings = []
 
-        # Stack the selected rows
-        patch_feature_embeddings = torch.stack(patch_feature_embeddings)
+            for i, indices in enumerate(topk_indices[0]):
+                # Check that indices are within bounds
+                valid_indices = indices[indices < h.shape[0]]
+                if valid_indices.numel() > 0:
+                    selected_rows = h[valid_indices, :]
+                    patch_feature_embeddings.append(selected_rows)
 
-        slide_feature_embeddings = M       
-        ############
+            # Stack the selected rows
+            patch_feature_embeddings = torch.stack(patch_feature_embeddings)
+
+            slide_feature_embeddings = M       
+            ############
+        else:
+            patch_feature_embeddings, slide_feature_embeddings = None, None
 
         return logits, Y_prob, Y_hat, A_raw, results_dict, patch_feature_embeddings, slide_feature_embeddings
 
-class CLAM_MB(CLAM_SB):
-    def __init__(self, gate = True, size_arg = "small", dropout = False, k_sample=8, n_classes=2,
-        instance_loss_fn=nn.CrossEntropyLoss(), subtyping=False):
-        nn.Module.__init__(self)
-        self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
-        size = self.size_dict[size_arg]
-        fc = [nn.Linear(size[0], size[1]), nn.ReLU()]
-        if dropout:
-            fc.append(nn.Dropout(0.25))
-        if gate:
-            attention_net = Attn_Net_Gated(L = size[1], D = size[2], dropout = dropout, n_classes = n_classes)
-        else:
-            attention_net = Attn_Net(L = size[1], D = size[2], dropout = dropout, n_classes = n_classes)
-        fc.append(attention_net)
-        self.attention_net = nn.Sequential(*fc)
-        bag_classifiers = [nn.Linear(size[1], 1) for i in range(n_classes)] #use an indepdent linear layer to predict each class
-        self.classifiers = nn.ModuleList(bag_classifiers)
-        instance_classifiers = [nn.Linear(size[1], 2) for i in range(n_classes)]
-        self.instance_classifiers = nn.ModuleList(instance_classifiers)
-        self.k_sample = k_sample
-        self.instance_loss_fn = instance_loss_fn
-        self.n_classes = n_classes
-        self.subtyping = subtyping
-        initialize_weights(self)
-
-    def forward(self, h, label=None, instance_eval=False, return_features=False, attention_only=False):
-        device = h.device
-        A, h = self.attention_net(h)  # NxK        
-        A = torch.transpose(A, 1, 0)  # KxN
-        if attention_only:
-            return A
-        A_raw = A
-        A = F.softmax(A, dim=1)  # softmax over N
-
-        if instance_eval:
-            total_inst_loss = 0.0
-            all_preds = []
-            all_targets = []
-            inst_labels = F.one_hot(label, num_classes=self.n_classes).squeeze() #binarize label
-            for i in range(len(self.instance_classifiers)):
-                inst_label = inst_labels[i].item()
-                classifier = self.instance_classifiers[i]
-                if inst_label == 1: #in-the-class:
-                    instance_loss, preds, targets = self.inst_eval(A[i], h, classifier)
-                    all_preds.extend(preds.cpu().numpy())
-                    all_targets.extend(targets.cpu().numpy())
-                else: #out-of-the-class
-                    if self.subtyping:
-                        instance_loss, preds, targets = self.inst_eval_out(A[i], h, classifier)
-                        all_preds.extend(preds.cpu().numpy())
-                        all_targets.extend(targets.cpu().numpy())
-                    else:
-                        continue
-                total_inst_loss += instance_loss
-
-            if self.subtyping:
-                total_inst_loss /= len(self.instance_classifiers)
-
-        M = torch.mm(A, h) 
-        logits = torch.empty(1, self.n_classes).float().to(device)
-        for c in range(self.n_classes):
-            logits[0, c] = self.classifiers[c](M[c])
-        Y_hat = torch.topk(logits, 1, dim = 1)[1]
-        Y_prob = F.softmax(logits, dim = 1)
-        if instance_eval:
-            results_dict = {'instance_loss': total_inst_loss, 'inst_labels': np.array(all_targets), 
-            'inst_preds': np.array(all_preds)}
-        else:
-            results_dict = {}
-        if return_features:
-            results_dict.update({'features': M})
-        return logits, Y_prob, Y_hat, A_raw, results_dict

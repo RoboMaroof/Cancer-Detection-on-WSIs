@@ -1,3 +1,0 @@
-slide_id,process,status,seg_level,sthresh,mthresh,close,use_otsu,keep_ids,exclude_ids,a_t,a_h,max_n_holes,vis_level,line_thickness,use_padding,contour_fn
-TCGA-33-6738-01A-01-BS1.12d0acdd-eda4-4b1c-88ce-20759ea987ae.svs,0,processed,2,8,7,4,False,none,none,100.0,16.0,8,2,250,True,four_pt
-TCGA-55-8507-01A-01-TS1.f6baa937-6390-4b2f-916b-705be1bb8926.svs,0,processed,2,8,7,4,False,none,none,100.0,16.0,8,2,250,True,four_pt

@@ -79,6 +79,7 @@ class Generic_WSI_Classification_Dataset(Dataset):
 		if print_info:
 			self.summarize() # Print Summary
 
+	'''
 	def cls_ids_prep(self):
 		# store ids corresponding each class at the patient or case level
 		self.patient_cls_ids = [[] for i in range(self.num_classes)]		
@@ -90,7 +91,14 @@ class Generic_WSI_Classification_Dataset(Dataset):
 		self.slide_cls_ids = [[] for i in range(self.num_classes)]
 		for i in range(self.num_classes):
 			self.slide_cls_ids[i] = np.where(self.slide_data['label'] == i)[0]
+	'''
 
+	def cls_ids_prep(self):
+		self.patient_cls_ids = [np.where(self.patient_data['label'] == i)[0] for i in range(self.num_classes)]
+		self.slide_cls_ids = [np.where(self.slide_data['label'] == i)[0] for i in range(self.num_classes)]
+
+
+	'''
 	def patient_data_prep(self, patient_voting='max'):
 		patients = np.unique(np.array(self.slide_data['case_id'])) # get unique patients
 		patient_labels = []
@@ -108,6 +116,19 @@ class Generic_WSI_Classification_Dataset(Dataset):
 			patient_labels.append(label)
 		
 		self.patient_data = {'case_id':patients, 'label':np.array(patient_labels)}
+	'''
+
+	def patient_data_prep(self, patient_voting='max'):
+		grouped = self.slide_data.groupby('case_id')['label']
+		if patient_voting == 'max':
+			patient_labels = grouped.max()
+		elif patient_voting == 'maj':
+			patient_labels = grouped.agg(lambda x: stats.mode(x)[0])
+		else:
+			raise NotImplementedError
+		
+		self.patient_data = {'case_id': patient_labels.index, 'label': patient_labels.values}
+
 
 	@staticmethod
 	def df_prep(data, label_dict, ignore, label_col):
