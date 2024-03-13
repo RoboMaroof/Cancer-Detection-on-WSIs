@@ -79,9 +79,8 @@ CUDA_VISIBLE_DEVICES=0 python main.py --drop_out --early_stopping --lr 2e-4 --k 
 **Inputs**:
 - Features data directory - `features_RESULTS_DIR_Combined_Datasets`
 - Output directory  - `results_DIR`
-Defined in code
-- Csv path - `SLIDE_IDs_SELECTED_COMBINED_DATASETS.csv`
-- Splits directory - `splits_DIR`
+- Csv path (Defined in code) - `SLIDE_IDs_SELECTED_COMBINED_DATASETS.csv`
+- Splits directory (Defined in code) - `splits_DIR`
 
 **Outputs**: 
 - Results for each split
