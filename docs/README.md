@@ -1,4 +1,4 @@
-# Cancer Detection on Whole Slide Images (WSIs) - Documentation
+# Cancer Detection on Whole Slide Images (WSIs)
 
 ## Dataset Information
 
